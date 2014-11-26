@@ -1,4 +1,5 @@
 #include "distance_kernels.h"
+#include <omp.h>
 
 
 void dist_double(const double* X, const double* y, const char* metric, npy_intp n,
@@ -12,7 +13,9 @@ void dist_double(const double* X, const double* y, const char* metric, npy_intp 
         fprintf(stderr, "Error");
         return;
     }
-    
+
+#pragma omp parallel for \
+        shared(X,y,m,n,out) private(i,u)
     for (i = 0; i < n; i++) {
         u = X + m * i;
         out[i] = metricfunc(u, y, m);
@@ -33,6 +36,8 @@ void dist_double_X_indices(const double* X, const double* y, const char* metric,
         return;
     }
     
+#pragma omp parallel for \
+        shared(X,X_indices,n_X_indices,y,m,out) private(ii,i,u)
     for (ii = 0; ii < n_X_indices; ii++) {
         i = X_indices[ii];
         u = X + m * i;
@@ -52,7 +57,9 @@ void dist_float(const float* X, const float* y, const char* metric, npy_intp n,
         fprintf(stderr, "Error");
         return;
     }
-    
+
+#pragma omp parallel for \
+        shared(X,y,m,n,out) private(i,u)
     for (i = 0; i < n; i++) {
         u = X + m * i;
         out[i] = metricfunc(u, y, m);
@@ -72,6 +79,8 @@ void dist_float_X_indices(const float* X, const float* y, const char* metric,
         return;
     }
     
+#pragma omp parallel for \
+        shared(X,X_indices,n_X_indices,y,m,out) private(ii,i,u)
     for (ii = 0; ii < n_X_indices; ii++) {
         i = X_indices[ii];
         u = X + m * i;

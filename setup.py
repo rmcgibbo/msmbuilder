@@ -122,6 +122,7 @@ extensions.append(
               # msvc needs to be told "libtheobald", gcc wants just "theobald"
               libraries=['%stheobald' % ('lib' if compiler.msvc else '')],
               extra_compile_args=compiler.compiler_args_openmp,
+              extra_link_args=compiler.compiler_libraries_openmp,
               include_dirs=["Mixtape/libdistance/src",
                             mdtraj_capi['include_dir'], np.get_include()],
               library_dirs=[mdtraj_capi['lib_dir']],
