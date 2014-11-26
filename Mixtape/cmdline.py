@@ -56,8 +56,10 @@ from six import with_metaclass
 import re
 import sys
 import abc
+import copy
 import argparse
 import inspect
+import itertools
 import numpydoc.docscrape
 from IPython.utils.text import wrap_paragraphs
 
@@ -291,11 +293,11 @@ class NumpydocClassCommand(Command):
         helptext = {d[0]: ' '.join(d[2]) for d in doc['Parameters']}
 
         # mapping from the name of the argument to the type
-        typemap = {d[0]: d[1].replace(',', ' ').split(' ')[0] for d in doc['Parameters']}
+        typemap = {d[0]: d[1].replace(',', ' ').split() for d in doc['Parameters']}
 
         # put all of these arguments into an argument group, to separate them
         # from other arguments on the subcommand
-        group = argument_group('instance arguments')
+        group = argument_group('Parameters')
 
         for i, arg in enumerate(args):
             if i == 0 and arg == 'self':
@@ -314,12 +316,17 @@ class NumpydocClassCommand(Command):
 
             # obviously this isn't an exaustive list, but try to make
             # reasonable argparse decisions based on the docstring.
-            if arg in typemap and typemap[arg] == 'list':
-                kwargs['nargs'] = '+'
-            if arg in typemap and typemap[arg] == 'bool':
-                kwargs['action'] = FlagAction
-            if arg in typemap and typemap[arg] in ['str', 'int']:
-                kwargs['type'] = eval(typemap[arg])
+            if arg in typemap:
+                if 'list' in typemap[arg]:
+                    kwargs['nargs'] = '+'
+                if 'bool' in typemap[arg]:
+                    kwargs['action'] = FlagAction
+
+                basic_types = {'str': str, 'float': float, 'int': int}
+                for basic_type in basic_types:
+                    if basic_type in typemap[arg]:
+                        kwargs['type'] = basic_types[basic_type]
+                        break
 
             group.add_argument('--{}'.format(arg), **kwargs)
 
@@ -331,8 +338,9 @@ class NumpydocClassCommand(Command):
         summary = ' '.join(doc['Summary'])
         if not summary.endswith('.'):
             summary += '.'
-        extended = ' '.join(doc['Extended Summary'])
-        return '%s %s' % (summary, extended)
+
+        extended = '\n'.join(doc['Extended Summary'])
+        return '\n'.join((summary, extended))
 
 
 
@@ -383,26 +391,36 @@ class App(object):
         # of the helptext.
         parser = argparse.ArgumentParser(
             description=self.description, formatter_class=lambda prog: MyHelpFormatter(prog,
-            indent_increment=1, width=88, action_max_length=17))
+            indent_increment=1, width=120, action_max_length=22))
 
         subparsers = parser.add_subparsers(dest=self.subcommand_dest, title="commands", metavar="")
-        for klass in self._subcommands():
-            # http://stackoverflow.com/a/17124446/1079728
-            klass_description = klass.description
-            if callable(klass_description):
-                klass_description = klass_description()
 
-            first_sentence = ' '.join(
-                ' '.join(re.split(r'(?<=[.:;])\s', klass_description)[:1]).split())
-            description = '\n\n'.join(wrap_paragraphs(klass_description))
-            subparser = subparsers.add_parser(
-                klass._get_name(), help=first_sentence, description=description, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-            for v in (getattr(klass, e) for e in dir(klass)):
-                if isinstance(v, (argument, argument_group, mutually_exclusive_group)):
-                    if v.parent is None:
-                        v.register(subparser)
-            if issubclass(klass, NumpydocClassCommand):
-                klass._register_arguments(subparser)
+
+        def _key(klass):
+            #return getattr(klass, '_group', klass)
+            return getattr(klass, '_group')
+
+        for title, group in itertools.groupby(sorted(self._subcommands(), key=_key), key=_key):
+            # subparser = subparsers.add_argument_group(name)
+            for klass in group:
+                # http://stackoverflow.com/a/17124446/1079728
+                klass_description = klass.description
+                if callable(klass_description):
+                    klass_description = klass_description()
+
+                first_sentence = ' '.join(
+                    ' '.join(re.split(r'(?<=[.:;])\s', klass_description)[:1]).split())
+                description = '\n\n'.join(wrap_paragraphs(klass_description))
+                subparser = subparsers.add_parser(
+                    klass._get_name(), help=first_sentence, description=description,
+                    formatter_class=MyHelpFormatter)
+
+                for v in (getattr(klass, e) for e in dir(klass)):
+                    if isinstance(v, (argument, argument_group, mutually_exclusive_group)):
+                        if v.parent is None:
+                            v.register(subparser)
+                if issubclass(klass, NumpydocClassCommand):
+                    klass._register_arguments(subparser)
 
         return parser
 
@@ -418,7 +436,7 @@ def all_subclasses(cls):
                                    for g in all_subclasses(s)]
 
 
-class MyHelpFormatter(argparse.HelpFormatter):
+class MyHelpFormatter(argparse.ArgumentDefaultsHelpFormatter, argparse.RawDescriptionHelpFormatter):
 
     def __init__(self, *args, **kwargs):
         # to see what's going on here, you really have to look in the argparse source.

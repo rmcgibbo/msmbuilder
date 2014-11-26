@@ -23,12 +23,17 @@
 from __future__ import print_function, division, absolute_import
 
 import json
+import contextlib
+import mdtraj as md
 import numpy as np
 from sklearn.utils import check_random_state
 from sklearn.externals.joblib import load, dump
 from sklearn.base import TransformerMixin
 from .base import BaseEstimator
-import sklearn.pipeline
+
+from sklearn import clone
+from sklearn.grid_search import ParameterGrid
+from sklearn.externals.joblib import Parallel, delayed
 
 #-----------------------------------------------------------------------------
 # Code
@@ -129,29 +134,28 @@ def map_drawn_samples(selected_pairs_by_state, trajectories, top=None):
         Output will be a list of trajectories such that frames_by_state[state]
         is a trajectory drawn from `state` of length `n_samples`.  If trajectories
         are numpy arrays, the output will be numpy arrays instead of md.Trajectories
-    
+
     Examples
     --------
     >>> selected_pairs_by_state = hmm.draw_samples(sequences, 3)
     >>> samples = map_drawn_samples(selected_pairs_by_state, trajectories)
-    
+
     Notes
     -----
-    YOU are responsible for ensuring that selected_pairs_by_state and 
+    YOU are responsible for ensuring that selected_pairs_by_state and
     trajectories correspond to the same dataset!
-    
+
     See Also
     --------
     utils.map_drawn_samples : Extract conformations from MD trajectories by index.
-    ghmm.GaussianFusionHMM.draw_samples : Draw samples from GHMM    
-    ghmm.GaussianFusionHMM.draw_centroids : Draw centroids from GHMM    
+    ghmm.GaussianFusionHMM.draw_samples : Draw samples from GHMM
+    ghmm.GaussianFusionHMM.draw_centroids : Draw centroids from GHMM
     """
 
     frames_by_state = []
 
     for state, pairs in enumerate(selected_pairs_by_state):
         if isinstance(trajectories[0], str):
-            import mdtraj as md
             if top:
                 process = lambda x, frame: md.load_frame(x, frame, top=top)
             else:
@@ -165,7 +169,7 @@ def map_drawn_samples(selected_pairs_by_state, trajectories, top=None):
         except AttributeError:
             state_trj = np.array(frames)  # Just a bunch of np arrays
         frames_by_state.append(state_trj)
-    
+
     return frames_by_state
 
 
@@ -178,10 +182,10 @@ class Subsampler(BaseEstimator, TransformerMixin):
         The lag time to subsample by
     sliding_window : bool, default=True
         If True, each time series is transformed into `lag_time` interlaced
-        sliding-window (not statistically independent) sequences.  If 
+        sliding-window (not statistically independent) sequences.  If
         False, each time series is transformed into a single subsampled
         time series.
-    """    
+    """
     def __init__(self, lag_time, sliding_window=True):
         self._lag_time = lag_time
         self._sliding_window = sliding_window
@@ -206,3 +210,96 @@ class Subsampler(BaseEstimator, TransformerMixin):
             return [X[k::self._lag_time] for k in range(self._lag_time) for X in X_all]
         else:
             return [X[::self._lag_time] for X in X_all]
+
+
+def check_iter_of_sequences(sequences, allow_trajectory=False, ndim=2, max_iter=None):
+    """Check that ``sequences`` is a iterable of trajectory-like sequences,
+    suitable as input to ``fit()`` for estimators following the Mixtape
+    API.
+
+    Parameters
+    ----------
+    sequences : object
+        The object to check
+    allow_trajectory : bool
+        Are ``md.Trajectory``s allowed?
+    ndim : int
+        The expected dimensionality of the sequences
+    max_iter : int, optional
+        Only check at maximum the first ``max_iter`` entries in ``sequences``.
+    """
+    value = True
+    for i, X in enumerate(sequences):
+        if not isinstance(X, np.ndarray):
+            if (not allow_trajectory) and isinstance(X, md.Trajectory):
+                value = False
+                break
+        if not isinstance(X, md.Trajectory) and X.ndim != ndim:
+            value = False
+            break
+        if max_iter is not None and i >= max_iter:
+            break
+
+    if not value:
+        raise ValueError('sequences must be a list of sequences')
+
+
+@contextlib.contextmanager
+def printoptions(*args, **kwargs):
+    original = np.get_printoptions()
+    np.set_printoptions(*args, **kwargs)
+    yield
+    np.set_printoptions(**original)
+
+
+def _param_sweep_helper(args):
+    """
+    helper for fitting many models on some data
+    """
+    model, sequences = args
+    model.fit(sequences)
+
+    return model
+
+
+def param_sweep(model, sequences, param_grid, n_jobs=1):
+    """
+    Helper to fit many models to the same data
+
+    Parameters
+    ----------
+    model : mixtape.BaseEstimator
+        An *instance* of an estimator to be used
+        to fit data.
+    sequences : list of array-like
+        List of sequences, or a single sequence. Each
+        sequence should be a 1D iterable of state
+        labels. Labels can be integers, strings, or
+        other orderable objects.
+    param_grid : dict or sklearn.grid_search.ParameterGrid
+        Parameter grid to specify models to fit. See
+        sklearn.grid_search.ParameterGrid for an explanation
+    n_jobs : int, optional
+        Number of jobs to run in parallel using joblib.Parallel
+
+    Returns
+    -------
+    models : list
+        List of models fit to the data according to
+        param_grid
+    """
+
+    if isinstance(param_grid, dict):
+        param_grid = ParameterGrid(param_grid)
+    elif not isinstance(param_grid, ParameterGrid):
+        raise ValueError("param_grid must be a dict or ParamaterGrid instance")
+
+    # iterable with (model, sequence) as items
+    iter_args = ((clone(model).set_params(**params), sequences)
+                 for params in param_grid)
+
+    models = Parallel(n_jobs=n_jobs)(
+        delayed(_param_sweep_helper)(args) for args in iter_args)
+
+    return models
+

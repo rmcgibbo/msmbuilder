@@ -24,6 +24,7 @@ from __future__ import print_function, division, absolute_import
 import numpy as np
 import scipy.linalg
 from ..base import BaseEstimator
+from ..utils import check_iter_of_sequences
 from sklearn.base import TransformerMixin
 from sklearn.utils import array2d
 
@@ -35,13 +36,14 @@ __all__ = ['tICA']
 
 
 class tICA(BaseEstimator, TransformerMixin):
-
     """Time-structure Independent Component Analysis (tICA)
 
     Linear dimensionality reduction using an eigendecomposition of the
     time-lag correlation matrix and covariance matrix of the data and keeping
     only the vectors which decorrelate slowest to project the data into a lower
     dimensional space.
+
+    sdfssdf
 
     Parameters
     ----------
@@ -78,18 +80,18 @@ class tICA(BaseEstimator, TransformerMixin):
         the corresponding eigenvector. See [2] for more information.
     means_ : array, shape (n_features,)
         The mean of the data along each feature
-    n_observations : int
+    n_observations_ : int
         Total number of data points fit by the model. Note that the model
         is "reset" by calling `fit()` with new sequences, whereas
         `partial_fit()` updates the fit with new data, and is suitable for
         online learning.
-    n_sequences : int
+    n_sequences_ : int
         Total number of sequences fit by the model. Note that the model
         is "reset" by calling `fit()` with new sequences, whereas
         `partial_fit()` updates the fit with new data, and is suitable for
          online learning.
-    timescales : array-like, shape (n_features,)
-        The implied timescales of the tICA model, given by 
+    timescales_ : array-like, shape (n_features,)
+        The implied timescales of the tICA model, given by
         -offset / log(eigenvalues)
 
     Notes
@@ -110,7 +112,7 @@ class tICA(BaseEstimator, TransformerMixin):
     .. [4] Molgedey, Lutz, and Heinz Georg Schuster. Phys. Rev. Lett. 72.23
        (1994): 3634.
     """
-    
+
     def __init__(self, n_components=None, lag_time=1, gamma=0.05, weighted_transform=False):
         self.n_components = n_components
         self.lag_time = lag_time
@@ -141,7 +143,7 @@ class tICA(BaseEstimator, TransformerMixin):
         self._components_ = None
         # Cached results of the eigendecompsition
         self._eigenvectors_ = None
-        self._eigenvalues = None
+        self._eigenvalues_ = None
 
         # are our current tICs dirty? this indicates that we've updated
         # the model with more data since the last time we computed components_,
@@ -262,6 +264,7 @@ class tICA(BaseEstimator, TransformerMixin):
             Returns the instance itself.
         """
         self._initialized = False
+        check_iter_of_sequences(sequences, max_iter=3)  # we might be lazy-loading
         for X in sequences:
             self._fit(X)
         return self
@@ -300,6 +303,7 @@ class tICA(BaseEstimator, TransformerMixin):
         sequence_new : list of array-like, each of shape (n_samples_i, n_components)
 
         """
+        check_iter_of_sequences(sequences, max_iter=3)  # we might be lazy-loading
         sequences_new = []
 
         for X in sequences:
@@ -308,7 +312,7 @@ class tICA(BaseEstimator, TransformerMixin):
                 X = X - self.means_
             X_transformed = np.dot(X, self.components_.T)
 
-            if self.weighted_transform:        
+            if self.weighted_transform:
                 X_transformed *= self.timescales_
 
             sequences_new.append(X_transformed)
@@ -329,10 +333,10 @@ class tICA(BaseEstimator, TransformerMixin):
         -------
         sequence_new : array-like, shape (n_samples, n_components)
             TICA-projected features
-            
+
         Notes
         -----
-        This function acts on a single featurized trajectory. 
+        This function acts on a single featurized trajectory.
 
         """
         sequences = [features]
@@ -422,3 +426,22 @@ class tICA(BaseEstimator, TransformerMixin):
         except np.linalg.LinAlgError:
             trace = np.nan
         return trace
+
+
+    def summarize(self):
+        """Some summary information."""
+        return """time-structure based Independent Components Analysis (tICA)
+-----------------------------------------------------------
+n_components        : {n_components}
+gamma               : {gamma}
+lag_time            : {lag_time}
+weighted_transform  : {weighted_transform}
+
+Top 5 timescales :
+{timescales}
+
+Top 5 eigenvalues :
+{eigenvalues}
+""".format(n_components=self.n_components, lag_time=self.lag_time,
+           gamma=self.gamma, weighted_transform=self.weighted_transform,
+           timescales=self.timescales_[:5], eigenvalues=self.eigenvalues_[:5])

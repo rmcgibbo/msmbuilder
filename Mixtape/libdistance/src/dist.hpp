@@ -8,7 +8,7 @@ void dist_double(const double* X, const double* y, const char* metric, npy_intp 
     npy_intp i;
     const double *u;
     double (*metricfunc) (const double *u, const double *v, npy_intp n) = \
-        metric_double(metric);
+            metric_double(metric);
     if (metricfunc == NULL) {
         fprintf(stderr, "Error");
         return;
@@ -30,7 +30,7 @@ void dist_double_X_indices(const double* X, const double* y, const char* metric,
     npy_intp i, ii;
     const double *u;
     double (*metricfunc) (const double *u, const double *v, npy_intp n) = \
-        metric_double(metric);
+            metric_double(metric);
     if (metricfunc == NULL) {
         fprintf(stderr, "Error");
         return;
@@ -52,7 +52,7 @@ void dist_float(const float* X, const float* y, const char* metric, npy_intp n,
     npy_intp i;
     const float *u;
     double (*metricfunc) (const float *u, const float *v, npy_intp n) = \
-        metric_float(metric);
+            metric_float(metric);
     if (metricfunc == NULL) {
         fprintf(stderr, "Error");
         return;
@@ -73,7 +73,7 @@ void dist_float_X_indices(const float* X, const float* y, const char* metric,
     npy_intp i, ii;
     const float *u;
     double (*metricfunc) (const float *u, const float *v, npy_intp n) = \
-        metric_float(metric);
+            metric_float(metric);
     if (metricfunc == NULL) {
         fprintf(stderr, "Error");
         return;

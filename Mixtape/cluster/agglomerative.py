@@ -29,6 +29,7 @@ from sklearn.externals.joblib import Memory
 from sklearn.utils import check_random_state
 from sklearn.base import ClusterMixin, TransformerMixin
 from . import MultiSequenceClusterMixin
+from ..base import BaseEstimator
 
 try:
     from fastcluster import linkage
@@ -143,7 +144,7 @@ class _LandmarkAgglomerative(ClusterMixin, TransformerMixin):
     landmark_labels_
     landmarks_
     """
-    
+
     def __init__(self, n_clusters, n_landmarks=None, linkage='average',
                  memory=Memory(cachedir=None, verbose=0), metric='euclidean',
                  landmark_strategy='stride', random_state=None):
@@ -165,7 +166,7 @@ class _LandmarkAgglomerative(ClusterMixin, TransformerMixin):
         Parameters
         ----------
         X : array-like, shape=(n_samples, n_features)
-        
+
         Returns
         -------
         self
@@ -185,7 +186,7 @@ class _LandmarkAgglomerative(ClusterMixin, TransformerMixin):
 
         tree = memory.cache(linkage)(distances, method=self.linkage)
         self.landmark_labels_ = fcluster(tree, criterion='maxclust', t=self.n_clusters) - 1
-        
+
         if self.n_landmarks is None:
             self.landmarks_ = X
         else:
@@ -237,5 +238,5 @@ class _LandmarkAgglomerative(ClusterMixin, TransformerMixin):
         return self.predict(X)
 
 
-class LandmarkAgglomerative(MultiSequenceClusterMixin, _LandmarkAgglomerative):
+class LandmarkAgglomerative(MultiSequenceClusterMixin, _LandmarkAgglomerative, BaseEstimator):
     __doc__ = _LandmarkAgglomerative.__doc__

@@ -26,7 +26,8 @@ from sklearn.utils import check_random_state
 from sklearn.base import ClusterMixin, TransformerMixin
 
 from .. import libdistance
-from . import MultiSequenceClusterMixin, _arrayify
+from . import MultiSequenceClusterMixin
+from ..base import BaseEstimator
 
 __all__ = ['KCenters']
 
@@ -54,14 +55,19 @@ class _KCenters(ClusterMixin, TransformerMixin):
 
     Attributes
     ----------
-    cluster_centers_ : array, [n_clusters, n_features]
+    cluster_ids_ : array, [n_clusters]
+        Index of the data point that each cluster label corresponds to.
+    cluster_centers_ : array, [n_clusters, n_features] or md.Trajectory
         Coordinates of cluster centers
     labels_ : array, [n_samples,]
         The label of each point is an integer in [0, n_clusters).
     distances_ : array, [n_samples,]
         Distance from each sample to the cluster center it is
         assigned to.
+    inertia_ : float
+        Sum of distances of samples to their closest cluster center.
     """
+
     def __init__(self, n_clusters=8, metric='euclidean', random_state=None):
         self.n_clusters = n_clusters
         self.metric = metric
@@ -74,17 +80,19 @@ class _KCenters(ClusterMixin, TransformerMixin):
         self.labels_ = np.zeros(n_samples, dtype=int)
         self.distances_ = np.empty(n_samples, dtype=float)
         self.distances_.fill(np.inf)
-        self.cluster_centers_ = [None for i in range(self.n_clusters)]
+        cluster_ids_ = []
 
         for i in range(self.n_clusters):
             d = libdistance.dist(X, X[new_center_index], metric=self.metric)
             mask = (d < self.distances_)
             self.distances_[mask] = d[mask]
             self.labels_[mask] = i
-            self.cluster_centers_[i] = X[new_center_index]
+            cluster_ids_.append(new_center_index)
             new_center_index = np.argmax(self.distances_)
 
-        self.cluster_centers_ = _arrayify(self.cluster_centers_)
+        self.cluster_ids_ = cluster_ids_
+        self.cluster_centers_ = X[cluster_ids_]
+        self.inertia_ = np.sum(self.distances_)
         return self
 
     def predict(self, X):
@@ -112,7 +120,8 @@ class _KCenters(ClusterMixin, TransformerMixin):
         return self.fit(X, y).labels_
 
 
-class KCenters(MultiSequenceClusterMixin, _KCenters):
+class KCenters(MultiSequenceClusterMixin, _KCenters, BaseEstimator):
+    _allow_trajectory = True
     __doc__ = _KCenters.__doc__[: _KCenters.__doc__.find('Attributes')] + \
     '''
     Attributes
@@ -149,3 +158,17 @@ class KCenters(MultiSequenceClusterMixin, _KCenters):
         MultiSequenceClusterMixin.fit(self, sequences)
         self.distances_ = self._split(self.distances_)
         return self
+
+    def summarize(self):
+        return """
+KCenters clustering
+--------------------
+n_clusters : {n_clusters}
+metric     : {metric}
+
+Inertia       : {inertia}
+Mean distance : {mean_distance}
+Max  distance : {max_distance}
+""".format(n_clusters=self.n_clusters, metric=self.metric,
+           inertia=self.inertia_, mean_distance=np.mean(np.concatenate(self.distances_)),
+           max_distance=np.max(np.concatenate(self.distances_)))

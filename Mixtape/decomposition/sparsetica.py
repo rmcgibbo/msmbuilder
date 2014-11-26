@@ -88,20 +88,23 @@ class SparseTICA(tICA):
         which the system relaxes towards equilibrium.
     means_ : array, shape (n_features,)
         The mean of the data along each feature
-    n_observations : int
+    n_observations_ : int
         Total number of data points fit by the model. Note that the model
         is "reset" by calling `fit()` with new sequences, whereas
         `partial_fit()` updates the fit with new data, and is suitable for
         online learning.
-    n_sequences : int
+    n_sequences_ : int
         Total number of sequences fit by the model. Note that the model
         is "reset" by calling `fit()` with new sequences, whereas
         `partial_fit()` updates the fit with new data, and is suitable for
          online learning.
+    timescales_ : array-like, shape (n_components,)
+        The implied timescales of the tICA model, given by
+        -offset / log(eigenvalues)
 
     See Also
     --------
-    mixtape.tica.tICA
+    mixtape.decomposition.tICA
 
     References
     ----------
@@ -155,6 +158,26 @@ class SparseTICA(tICA):
             A = scdeflate(A, v)
 
         self._is_dirty = False
+
+    def summarize(self):
+        """Some summary information."""
+
+        return """sparse time-structure based Independent Components Analysis (tICA)
+------------------------------------------------------------------
+n_components        : {n_components}
+gamma               : {gamma}
+lag_time            : {lag_time}
+weighted_transform  : {weighted_transform}
+rho                 : {rho}
+
+Top 5 timescales :
+{timescales}
+
+Top 5 eigenvalues :
+{eigenvalues}
+""".format(n_components=self.n_components, lag_time=self.lag_time, rho=self.rho,
+           gamma=self.gamma, weighted_transform=self.weighted_transform,
+           timescales=self.timescales_[:5], eigenvalues=self.eigenvalues_[:5])
 
 
 def scdeflate(A, x):
@@ -269,7 +292,7 @@ def speigh(A, B, v_init, rho, eps, tol, tau=None, maxiter=10000, verbose=True):
             pprint('Path [1]: tau=0, diagonal B')
             old_x.fill(np.inf)
             for i in range(maxiter):
-                if np.linalg.norm(x[old_x>tol] - old_x[old_x>tol]) < tol:
+                if np.linalg.norm(x[old_x > tol] - old_x[old_x > tol]) < tol:
                     break
                 pprint('x', x)
                 old_x = x
@@ -289,7 +312,7 @@ def speigh(A, B, v_init, rho, eps, tol, tau=None, maxiter=10000, verbose=True):
             pprint('Path [2]: tau=0, general B')
             old_x.fill(np.inf)
             for i in range(maxiter):
-                if np.linalg.norm(x[old_x>tol] - old_x[old_x>tol]) < tol:
+                if np.linalg.norm(x[old_x > tol] - old_x[old_x > tol]) < tol:
                     break
                 pprint('x: ', x)
                 old_x = x
@@ -324,7 +347,7 @@ def speigh(A, B, v_init, rho, eps, tol, tau=None, maxiter=10000, verbose=True):
         old_x.fill(np.inf)
         scaledA = (A / tau + np.eye(length))
         for i in range(maxiter):
-            if np.linalg.norm(x[old_x>tol] - old_x[old_x>tol]) < tol:
+            if np.linalg.norm(x[old_x > tol] - old_x[old_x > tol]) < tol:
                 break
             pprint('x', x)
             old_x = x
@@ -359,7 +382,8 @@ def speigh(A, B, v_init, rho, eps, tol, tau=None, maxiter=10000, verbose=True):
     mask = (np.abs(x) > sparsecutoff)
     grid = np.ix_(mask, mask)
     Ak, Bk = A[grid], B[grid]  # form the submatrices
-    gevals, gevecs = scipy.linalg.eigh(Ak, Bk, eigvals=(Ak.shape[0]-2, Ak.shape[0]-1))
+    gevals, gevecs = scipy.linalg.eigh(
+        Ak, Bk, eigvals=(Ak.shape[0]-2, Ak.shape[0]-1))
     u = gevals[-1]
     v = np.zeros(length)
     v[mask] = gevecs[:, -1]
