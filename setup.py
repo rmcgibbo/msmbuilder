@@ -177,8 +177,10 @@ setup(name='mixtape',
       classifiers=CLASSIFIERS.splitlines(),
       packages=['mixtape'] + ['mixtape.%s' % e for e in
                               find_packages('Mixtape')],
+      package_data={'mixtape.tests': ['workflows/*']},
       package_dir={'mixtape': 'Mixtape'},
-      scripts=['scripts/msmb'],
+      entry_points={'console_scripts':
+              ['msmb = mixtape.scripts.msmb:main']},
       zip_safe=False,
       ext_modules=extensions,
       cmdclass={'build_ext': build_ext})

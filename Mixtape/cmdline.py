@@ -54,14 +54,31 @@ if __name__ == '__main__':
 from __future__ import print_function, division, absolute_import
 from six import with_metaclass
 import re
+import os
 import sys
 import abc
 import copy
 import argparse
 import inspect
 import itertools
-import numpydoc.docscrape
-from IPython.utils.text import wrap_paragraphs
+try:
+    import numpydoc.docscrape
+except ImportError:
+    print('-'*35, file=sys.stderr)
+    print('              ERROR', file=sys.stderr)
+    print('-'*35, file=sys.stderr)
+    print('The package `numpydoc` is required.\n', file=sys.stderr)
+    print('Try:', file=sys.stderr)
+    print('  $ conda install numpydoc', file=sys.stderr)
+    print('or', file=sys.stderr)
+    print('  $ pip install numpydoc', file=sys.stderr)
+    print('-'*35, file=sys.stderr)
+    raise
+
+# Work around a very odd bug in pytables, where it destroys arguments in
+# sys.argv when imported
+# https://github.com/PyTables/PyTables/issues/405
+SAVED_SYSARGV = copy.copy(sys.argv)
 
 __all__ = ['argument', 'argument_group', 'Command', 'App', 'FlagAction',
            'MultipleIntAction']
@@ -340,7 +357,17 @@ class NumpydocClassCommand(Command):
             summary += '.'
 
         extended = '\n'.join(doc['Extended Summary'])
-        return '\n'.join((summary, extended))
+
+        notes = ''
+        references = ''
+        if len(doc['Notes']) > 0:
+            notes = '\n'.join(('\nNotes', '------') + tuple(doc['Notes']))
+        if len(doc['References']) > 0:
+            references = '\n'.join(('\nReferences', '----------') +
+                                   tuple(doc['References']))
+
+
+        return '\n'.join((summary, '', extended, notes, references))
 
 
 
@@ -351,7 +378,7 @@ class App(object):
         self.name = name
         self.description = description
         if argv is None:
-            argv = sys.argv[1:]
+            argv = SAVED_SYSARGV[1:]
         if len(argv) == 0:
             argv.append('-h')
         self.parser = self._build_parser()
@@ -410,7 +437,7 @@ class App(object):
 
                 first_sentence = ' '.join(
                     ' '.join(re.split(r'(?<=[.:;])\s', klass_description)[:1]).split())
-                description = '\n\n'.join(wrap_paragraphs(klass_description))
+                description = klass_description
                 subparser = subparsers.add_parser(
                     klass._get_name(), help=first_sentence, description=description,
                     formatter_class=MyHelpFormatter)
@@ -445,3 +472,20 @@ class MyHelpFormatter(argparse.ArgumentDefaultsHelpFormatter, argparse.RawDescri
         action_max_length = kwargs.pop('action_max_length', 0)
         super(MyHelpFormatter, self).__init__(*args, **kwargs)
         self._action_max_length = action_max_length
+
+    def _get_help_string(self, action):
+        help = action.help
+        if action.default:
+            return super(MyHelpFormatter, self)._get_help_string(action)
+        return help
+
+def exttype(suffix):
+    """Type for use with argument(... type=) that will force a specific suffix
+    Especially for output files, so that we can enforce the use of appropriate
+    file-type specific suffixes"""
+    def inner(s):
+        if s == '':
+            return s
+        first, last = os.path.splitext(s)
+        return first + suffix
+    return inner
