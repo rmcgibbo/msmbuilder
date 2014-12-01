@@ -1,4 +1,4 @@
-# cython: c_string_type=str, c_string_encoding=ascii
+# cython: c_string_type=str, c_string_encoding=ascii, boundscheck=False
 from __future__ import print_function
 import numpy as np
 import mdtraj as md
@@ -456,11 +456,13 @@ cdef _dist_double(double[:, ::1] X, double[::1] y, const char* metric, npy_intp[
     assert X.shape[1] == y.shape[0]
     if X_indices is None:
         out = np.zeros(X.shape[0], dtype=np.double)
-        dist_double(&X[0,0], &y[0], metric, X.shape[0], X.shape[1], &out[0])
+        with nogil:
+          dist_double(&X[0,0], &y[0], metric, X.shape[0], X.shape[1], &out[0])
     else:
         out = np.zeros(X_indices.shape[0], dtype=np.double)
-        dist_double_X_indices(&X[0, 0], &y[0], metric, X.shape[0], X.shape[1],
-            &X_indices[0], X_indices.shape[0], &out[0])
+        with nogil:
+          dist_double_X_indices(&X[0, 0], &y[0], metric, X.shape[0], X.shape[1],
+              &X_indices[0], X_indices.shape[0], &out[0])
     return np.array(out, copy=False)
 
 
@@ -469,11 +471,13 @@ cdef _dist_float(float[:, ::1] X, float[::1] y, const char* metric, npy_intp[::1
     assert X.shape[1] == y.shape[0]
     if X_indices is None:
         out = np.zeros(X.shape[0], dtype=np.double)
-        dist_float(&X[0,0], &y[0], metric, X.shape[0], X.shape[1], &out[0])
+        with nogil:
+          dist_float(&X[0,0], &y[0], metric, X.shape[0], X.shape[1], &out[0])
     else:
         out = np.zeros(X_indices.shape[0], dtype=np.double)
-        dist_float_X_indices(&X[0, 0], &y[0], metric, X.shape[0], X.shape[1],
-            &X_indices[0], X_indices.shape[0], &out[0])
+        with nogil:
+          dist_float_X_indices(&X[0, 0], &y[0], metric, X.shape[0], X.shape[1],
+              &X_indices[0], X_indices.shape[0], &out[0])
     return np.array(out, copy=False)
 
 
