@@ -21,9 +21,11 @@ void assign_nearest_double(const double* X, const double* Y,
     }
 
     if (X_indices == NULL) {
+#ifdef _OPENMP
 #pragma omp parallel for \
       shared(inertia,X,n_X,n_Y,assignments,n_features) \
       private(i,min_d,j,d)
+#endif
         for (i = 0; i < n_X; i++) {
             min_d = DBL_MAX;
             for (j = 0; j < n_Y; j++) {
@@ -36,9 +38,11 @@ void assign_nearest_double(const double* X, const double* Y,
             *inertia += min_d;
         }
     } else {
+#ifdef _OPENMP
 #pragma omp parallel for \
       shared(inertia,X,n_X_indices,n_Y,assignments,n_features) \
       private(i,min_d,j,d)
+#endif
         for (i = 0; i < n_X_indices; i++) {
             min_d = DBL_MAX;
             for (j = 0; j < n_Y; j++) {
@@ -71,9 +75,11 @@ void assign_nearest_float(const float* X, const float* Y,
     }
 
     if (X_indices == NULL) {
+#ifdef _OPENMP
 #pragma omp parallel for \
       shared(inertia,X,n_X,n_Y,assignments,n_features) \
       private(i,min_d,j,d)
+#endif
         for (i = 0; i < n_X; i++) {
             min_d = DBL_MAX;
             for (j = 0; j < n_Y; j++) {
@@ -86,9 +92,11 @@ void assign_nearest_float(const float* X, const float* Y,
             *inertia += min_d;
         }
     } else {
+#ifdef _OPENMP
 #pragma omp parallel for \
       shared(inertia,X,n_X_indices,n_Y,assignments,n_features) \
       private(i,min_d,j,d)
+#end
         for (i = 0; i < n_X_indices; i++) {
             min_d = DBL_MAX;
             for (j = 0; j < n_Y; j++) {
