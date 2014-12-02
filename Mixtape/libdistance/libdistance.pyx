@@ -21,11 +21,11 @@ cdef extern from "assign.hpp":
     void assign_nearest_double(const double* X, const double* Y,
         const char* metric, const npy_intp* X_indices, npy_intp n_X,
         npy_intp n_Y, npy_intp n_features, npy_intp n_X_indices,
-        npy_intp* assignments, double* inertia) nogil
+        npy_intp* assignments, double* inertia, int n_threads) nogil
     void assign_nearest_float(const float* X, const float* Y,
         const char* metric, const npy_intp* X_indices, npy_intp n_X,
         npy_intp n_Y, npy_intp n_features, npy_intp n_X_indices,
-        npy_intp* assignments, double *inertia) nogil
+        npy_intp* assignments, double *inertia, int n_threads) nogil
 cdef extern from "pdist.hpp":
     void pdist_double(const double* X, const char* metric, npy_intp n, npy_intp m,
         double* out) nogil
@@ -39,15 +39,15 @@ cdef extern from "pdist.hpp":
         double* out) nogil
 cdef extern from "dist.hpp":
     void dist_double(const double* X, const double* y, const char* metric,
-        npy_intp n, npy_intp m, double* out) nogil
+        npy_intp n, npy_intp m, double* out, int n_threads) nogil
     void dist_float(const float* X, const float* y, const char* metric,
-        npy_intp n, npy_intp m, double* out) nogil
+        npy_intp n, npy_intp m, double* out, int n_threads) nogil
     void dist_double_X_indices(const double* X, const double* y, const char* metric,
         npy_intp n, npy_intp m, const npy_intp* X_indices, npy_intp n_X_indices,
-        double* out) nogil
+        double* out, int n_threads) nogil
     void dist_float_X_indices(const float* X, const float* y, const char* metric,
         npy_intp n, npy_intp m, const npy_intp* X_indices, npy_intp n_X_indices,
-        double* out) nogil
+        double* out, int n_threads) nogil
 cdef extern from "sumdist.hpp":
     double sumdist_double(const double* X, const char* metric, npy_intp n,
         npy_intp m, const npy_intp* pairs, npy_intp p) nogil
@@ -68,8 +68,9 @@ cdef extern from "math.h":
 #-----------------------------------------------------------------------------
 
 
-def assign_nearest(X, Y, const char* metric, npy_intp[::1] X_indices=None):
-    """assign_nearest(X, Y, metric, X_indices=None)
+def assign_nearest(X, Y, const char* metric, npy_intp[::1] X_indices=None, int
+    n_threads=-1):
+    """assign_nearest(X, Y, metric, X_indices=None, n_threads=-1)
 
     For each point in X, compute the index of the nearest element in Y.
 
@@ -88,6 +89,9 @@ def assign_nearest(X, Y, const char* metric, npy_intp[::1] X_indices=None):
         If supplied, only data points with index in X_indices will be
         considered. `X_indices = None` is equivalent to
         `X_indices = range(len(X))`
+    n_threads : int
+        Number of threads to use in parallel (OpenMP) while doing assignments.
+        If -1, one thread used per CPU core. 
 
     Returns
     -------
@@ -113,9 +117,9 @@ def assign_nearest(X, Y, const char* metric, npy_intp[::1] X_indices=None):
                          ', '.join("'%s'" % s for s in VECTOR_METRICS))
 
     if X.dtype == np.float64 and Y.dtype == np.float64:
-        return _assign_nearest_double(X, Y, metric, X_indices)
+        return _assign_nearest_double(X, Y, metric, X_indices,n_threads)
     elif X.dtype == np.float32 and Y.dtype == np.float32:
-        return _assign_nearest_float(X, Y, metric, X_indices)
+        return _assign_nearest_float(X, Y, metric, X_indices,n_threads)
     else:
         raise TypeError('X and y must be both float32 or float64')
 
@@ -167,8 +171,9 @@ def pdist(X, const char* metric, npy_intp[::1] X_indices=None):
         raise TypeError('X must be float32 or float64')
 
 
-def dist(X, y, const char* metric, npy_intp[::1] X_indices=None):
-    """dist(X, y, metric, X_indices=None)
+def dist(X, y, const char* metric, npy_intp[::1] X_indices=None,
+    n_threads=-1):
+    """dist(X, y, metric, X_indices=None, n_threads=-1)
 
     Distance from one point to many points.
 
@@ -183,6 +188,9 @@ def dist(X, y, const char* metric, npy_intp[::1] X_indices=None):
         The distance metric to use. metric = "rmsd" requires that both X
         and cluster centers be of type md.Trajectory; other distance metrics
         require that they be arrays.
+    n_threads : int
+        Number of parallel threads (OpenMP) to use in distance calcualtion. If
+        -1, uses one thread per CPU core.
 
     Returns
     -------
@@ -204,9 +212,9 @@ def dist(X, y, const char* metric, npy_intp[::1] X_indices=None):
                          ', '.join("'%s'" % s for s in VECTOR_METRICS))
 
     if X.dtype == np.float64 and y.dtype == np.float64:
-        return _dist_double(X, y, metric, X_indices)
+        return _dist_double(X, y, metric, n_threads, X_indices)
     elif X.dtype == np.float32 and y.dtype == np.float32:
-        return _dist_float(X, y, metric, X_indices)
+        return _dist_float(X, y, metric, n_threads, X_indices)
     else:
         raise TypeError('X and y must be both float32 or float64')
 
@@ -311,7 +319,8 @@ cdef _assign_nearest_rmsd(X, Y, npy_intp[::1] X_indices=None):
 
 
 cdef _assign_nearest_double(double[:, ::1] X, double[:, ::1] Y,
-                            const char* metric, npy_intp[::1] X_indices=None):
+                            const char* metric, npy_intp[::1] X_indices=None,
+                            int n_threads=-1):
     cdef npy_intp[::1] assignments
     cdef npy_intp length, n_features
     n_features = X.shape[1]
@@ -327,12 +336,13 @@ cdef _assign_nearest_double(double[:, ::1] X, double[:, ::1] Y,
         &X[0, 0], &Y[0, 0], metric,
         <npy_intp*> NULL if X_indices is None else &X_indices[0],
         X.shape[0], Y.shape[0], n_features, length,
-        &assignments[0], &inertia)
+        &assignments[0], &inertia, n_threads)
     return np.array(assignments, copy=False), inertia
 
 
 cdef _assign_nearest_float(float[:, ::1] X, float[:, ::1] Y,
-                           const char* metric, npy_intp[::1] X_indices=None):
+                           const char* metric, npy_intp[::1] X_indices=None, int
+                           n_threads=-1):
     cdef npy_intp[::1] assignments
     cdef npy_intp length, n_features
     n_features = X.shape[1]
@@ -342,13 +352,14 @@ cdef _assign_nearest_float(float[:, ::1] X, float[:, ::1] Y,
     else:
         length = X_indices.shape[0]
     assignments = np.zeros(length, dtype=np.intp)
+
       
     cdef double inertia = 0.0;
     assign_nearest_float(
         &X[0, 0], &Y[0, 0], metric,
         <npy_intp*> NULL if X_indices is None else &X_indices[0],
         X.shape[0], Y.shape[0], n_features, length,
-        &assignments[0], &inertia)
+        &assignments[0], &inertia, n_threads)
     return np.array(assignments, copy=False), inertia
 
 
@@ -453,33 +464,31 @@ cdef _dist_rmsd(X, y, npy_intp[::1] X_indices=None):
     return np.array(out, copy=False)
 
 
-cdef _dist_double(double[:, ::1] X, double[::1] y, const char* metric, npy_intp[::1] X_indices=None):
+cdef _dist_double(double[:, ::1] X, double[::1] y, const char* metric, int n_threads, npy_intp[::1] X_indices=None):
     cdef double[::1] out
     assert X.shape[1] == y.shape[0]
     if X_indices is None:
         out = np.zeros(X.shape[0], dtype=np.double)
-        with nogil:
-          dist_double(&X[0,0], &y[0], metric, X.shape[0], X.shape[1], &out[0])
+        dist_double(&X[0,0], &y[0], metric, X.shape[0], X.shape[1], &out[0],
+            n_threads)
     else:
         out = np.zeros(X_indices.shape[0], dtype=np.double)
-        with nogil:
-          dist_double_X_indices(&X[0, 0], &y[0], metric, X.shape[0], X.shape[1],
-              &X_indices[0], X_indices.shape[0], &out[0])
+        dist_double_X_indices(&X[0, 0], &y[0], metric, X.shape[0], X.shape[1],
+            &X_indices[0], X_indices.shape[0], &out[0], n_threads)
     return np.array(out, copy=False)
 
 
-cdef _dist_float(float[:, ::1] X, float[::1] y, const char* metric, npy_intp[::1] X_indices=None):
+cdef _dist_float(float[:, ::1] X, float[::1] y, const char* metric, int n_threads, npy_intp[::1] X_indices=None):
     cdef double[::1] out
     assert X.shape[1] == y.shape[0]
     if X_indices is None:
         out = np.zeros(X.shape[0], dtype=np.double)
-        with nogil:
-          dist_float(&X[0,0], &y[0], metric, X.shape[0], X.shape[1], &out[0])
+        dist_float(&X[0,0], &y[0], metric, X.shape[0], X.shape[1], &out[0],
+            n_threads)
     else:
         out = np.zeros(X_indices.shape[0], dtype=np.double)
-        with nogil:
-          dist_float_X_indices(&X[0, 0], &y[0], metric, X.shape[0], X.shape[1],
-              &X_indices[0], X_indices.shape[0], &out[0])
+        dist_float_X_indices(&X[0, 0], &y[0], metric, X.shape[0], X.shape[1],
+            &X_indices[0], X_indices.shape[0], &out[0], n_threads)
     return np.array(out, copy=False)
 
 
