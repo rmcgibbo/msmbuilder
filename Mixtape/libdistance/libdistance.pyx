@@ -21,11 +21,11 @@ cdef extern from "assign.hpp":
     double assign_nearest_double(const double* X, const double* Y,
         const char* metric, const npy_intp* X_indices, npy_intp n_X,
         npy_intp n_Y, npy_intp n_features, npy_intp n_X_indices,
-        npy_intp* assignments) nogil
+        npy_intp* assignments, double* inertia) nogil
     double assign_nearest_float(const float* X, const float* Y,
         const char* metric, const npy_intp* X_indices, npy_intp n_X,
         npy_intp n_Y, npy_intp n_features, npy_intp n_X_indices,
-        npy_intp* assignments) nogil
+        npy_intp* assignments, double *inertia) nogil
 cdef extern from "pdist.hpp":
     void pdist_double(const double* X, const char* metric, npy_intp n, npy_intp m,
         double* out) nogil
@@ -322,11 +322,12 @@ cdef _assign_nearest_double(double[:, ::1] X, double[:, ::1] Y,
         length = X_indices.shape[0]
     assignments = np.zeros(length, dtype=np.intp)
 
-    cdef double inertia = assign_nearest_double(
+    cdef double inertia = 0.0;
+    assign_nearest_double(
         &X[0, 0], &Y[0, 0], metric,
         <npy_intp*> NULL if X_indices is None else &X_indices[0],
         X.shape[0], Y.shape[0], n_features, length,
-        &assignments[0])
+        &assignments[0], &inertia)
     return np.array(assignments, copy=False), inertia
 
 
@@ -341,12 +342,13 @@ cdef _assign_nearest_float(float[:, ::1] X, float[:, ::1] Y,
     else:
         length = X_indices.shape[0]
     assignments = np.zeros(length, dtype=np.intp)
-
-    cdef double inertia = assign_nearest_float(
+      
+    cdef double inertia = 0.0;
+    assign_nearest_float(
         &X[0, 0], &Y[0, 0], metric,
         <npy_intp*> NULL if X_indices is None else &X_indices[0],
         X.shape[0], Y.shape[0], n_features, length,
-        &assignments[0])
+        &assignments[0], &inertia)
     return np.array(assignments, copy=False), inertia
 
 

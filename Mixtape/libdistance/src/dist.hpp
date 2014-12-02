@@ -1,6 +1,7 @@
 #include "distance_kernels.h"
+#ifdef _OPENMP
 #include <omp.h>
-
+#endif
 
 void dist_double(const double* X, const double* y, const char* metric, npy_intp n,
                  npy_intp m, double* out)
