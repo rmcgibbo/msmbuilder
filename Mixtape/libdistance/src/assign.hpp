@@ -6,7 +6,7 @@
 #include "distance_kernels.h"
 
 
-double assign_nearest_double(const double* X, const double* Y,
+void assign_nearest_double(const double* X, const double* Y,
                              const char* metric, const npy_intp* X_indices, npy_intp n_X,
                              npy_intp n_Y, npy_intp n_features, npy_intp n_X_indices,
                              npy_intp* assignments, double *inertia)
@@ -17,7 +17,7 @@ double assign_nearest_double(const double* X, const double* Y,
             metric_double(metric);
     if (metricfunc == NULL) {
         fprintf(stderr, "Error");
-        return -1;
+        return;
     }
 
     if (X_indices == NULL) {
@@ -52,11 +52,11 @@ double assign_nearest_double(const double* X, const double* Y,
         }
     }
 
-    return *inertia;
+    return;
 }
 
 
-double assign_nearest_float(const float* X, const float* Y,
+void assign_nearest_float(const float* X, const float* Y,
                             const char* metric, const npy_intp* X_indices, npy_intp n_X,
                             npy_intp n_Y, npy_intp n_features, npy_intp n_X_indices,
                             npy_intp* assignments, double* inertia)
@@ -67,7 +67,7 @@ double assign_nearest_float(const float* X, const float* Y,
             metric_float(metric);
     if (metricfunc == NULL) {
         fprintf(stderr, "Error");
-        return -1;
+        return;
     }
 
     if (X_indices == NULL) {
@@ -102,5 +102,5 @@ double assign_nearest_float(const float* X, const float* Y,
         }
     }
 
-    return *inertia;
+    return;
 }

@@ -18,11 +18,11 @@ cdef const char* RMSD = "rmsd"
 #-----------------------------------------------------------------------------
 
 cdef extern from "assign.hpp":
-    double assign_nearest_double(const double* X, const double* Y,
+    void assign_nearest_double(const double* X, const double* Y,
         const char* metric, const npy_intp* X_indices, npy_intp n_X,
         npy_intp n_Y, npy_intp n_features, npy_intp n_X_indices,
         npy_intp* assignments, double* inertia) nogil
-    double assign_nearest_float(const float* X, const float* Y,
+    void assign_nearest_float(const float* X, const float* Y,
         const char* metric, const npy_intp* X_indices, npy_intp n_X,
         npy_intp n_Y, npy_intp n_features, npy_intp n_X_indices,
         npy_intp* assignments, double *inertia) nogil
