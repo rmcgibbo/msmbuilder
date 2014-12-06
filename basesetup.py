@@ -107,7 +107,7 @@ class CompilerDetection(object):
             else:
                 self.compiler_args_openmp = ['-fopenmp']
                 if openmp_needs_gomp:
-                    self.compiler_libraries_openmp = ['gomp']
+                    self.compiler_libraries_openmp = ['-lgomp']
         else:
             self.compiler_libraries_openmp = []
             self.compiler_args_openmp = []
