@@ -2,6 +2,7 @@ import numpy as np
 cimport numpy as np
 from libcpp.vector cimport vector
 from libcpp.string cimport string
+from cpython.ref cimport PyObject
 
 import time
 import warnings
@@ -12,9 +13,10 @@ from .discrete_approx import discrete_approx_mvn, NotSatisfiableError
 from ..utils import check_iter_of_sequences, printoptions
 from ..msm._markovstatemodel import _transmat_mle_prinz
 
+
 cdef extern from "Trajectory.h" namespace "msmbuilder":
     cdef cppclass Trajectory:
-        Trajectory(char*, int, int, int, int) except +
+        Trajectory(PyObject*, char*, int, int, int, int) except +
         Trajectory()
 
 cdef extern from "GaussianHMMFitter.h" namespace "msmbuilder":
@@ -345,7 +347,6 @@ cdef public class GaussianHMM[object GaussianHMMObject, type GaussianHMMType]:
                                   for frame in range(X.shape[0])])
             selected_pairs_by_state = []
             for k in range(self.n_states):
-                print('computing weights for k=%d...' % k)
                 try:
                     weights = discrete_approx_mvn(X_concat, self._means_[k],
                                                   self._vars_[k], match_vars)
@@ -459,19 +460,21 @@ timescales: {timescales}
         """Convert the sequences supplied by the user into the form needed by the C++ code."""
         cdef vector[Trajectory] trajectoryVec
         cdef np.ndarray[float, ndim=2] array
+
         for s in sequences:
             array = s
-            trajectoryVec.push_back(Trajectory(<char*> &array[0,0], array.shape[0], array.shape[1], array.strides[0], array.strides[1]))
-        return trajectoryVec
+            trajectoryVec.push_back(Trajectory(<PyObject*> array, <char*> &array[0,0], array.shape[0], array.shape[1], array.strides[0], array.strides[1]))
+            return trajectoryVec
 
     cdef vector[Trajectory] _convert_sequences_to_vector_double(self, sequences):
         """Convert the sequences supplied by the user into the form needed by the C++ code."""
         cdef vector[Trajectory] trajectoryVec
         cdef np.ndarray[double, ndim=2] array
+
         for s in sequences:
             array = s
-            trajectoryVec.push_back(Trajectory(<char*> &array[0,0], array.shape[0], array.shape[1], array.strides[0], array.strides[1]))
-        return trajectoryVec
+            trajectoryVec.push_back(Trajectory(<PyObject*> array, <char*> &array[0,0], array.shape[0], array.shape[1], array.strides[0], array.strides[1]))
+            return trajectoryVec
 
     def _init(self, sequences):
         """Find initial means (hot start)"""
@@ -534,6 +537,7 @@ timescales: {timescales}
         fitter.set_transmat(<double*> &transmat[0,0])
         fitter.set_means_and_variances(<double*> &means[0,0], <double*> &vars[0,0])
         try:
+            print('_fit_double...')
             fitter.fit(trajectoryVec, self.thresh)
         finally:
             del fitter
@@ -731,7 +735,7 @@ timescales: {timescales}
             viterbi_sequences = []
             for s in sequences:
                 array = s
-                trajectory = Trajectory(<char*> &array[0,0], array.shape[0], array.shape[1], array.strides[0], array.strides[1])
+                trajectory = Trajectory(<PyObject*> array, <char*> &array[0,0], array.shape[0], array.shape[1], array.strides[0], array.strides[1])
                 state_sequence = np.empty(len(s), dtype=np.int32)
                 logprob += fitter.predict_state_sequence(trajectory, <int*> &state_sequence[0])
                 viterbi_sequences.append(state_sequence)
@@ -759,7 +763,7 @@ timescales: {timescales}
             viterbi_sequences = []
             for s in sequences:
                 array = s
-                trajectory = Trajectory(<char*> &array[0,0], array.shape[0], array.shape[1], array.strides[0], array.strides[1])
+                trajectory = Trajectory(<PyObject*> array, <char*> &array[0,0], array.shape[0], array.shape[1], array.strides[0], array.strides[1])
                 state_sequence = np.empty(len(s), dtype=np.int32)
                 logprob += fitter.predict_state_sequence(trajectory, <int*> &state_sequence[0])
                 viterbi_sequences.append(state_sequence)

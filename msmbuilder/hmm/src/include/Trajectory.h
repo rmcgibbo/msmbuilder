@@ -1,5 +1,6 @@
 #ifndef MIXTAPE_TRAJECTORY_H
 #define MIXTAPE_TRAJECTORY_H
+#include "Python.h"
 
 namespace msmbuilder {
 
@@ -14,16 +15,22 @@ public:
     /**
      * Create a Trajectory object wrapping an existing array of data.
      *
+     * @param object
      * @param data           the existing data to wrap
      * @param numFrames      the number of frames in the trajectory
      * @param numFeatures    the number of features in each frame
      * @param frameStride    the offset between successive frames, measured in bytes
      * @param featureStride  the offset between successive features, measured in bytes
      */
-    Trajectory(char* data, int numFrames, int numFeatures, int frameStride, int featureStride) :
-        data(data), numFrames(numFrames), numFeatures(numFeatures), frameStride(frameStride), featureStride(featureStride) {
+    Trajectory(PyObject* object, char* data, int numFrames, int numFeatures, int frameStride, int featureStride) :
+        object(object), data(data), numFrames(numFrames), numFeatures(numFeatures), frameStride(frameStride), featureStride(featureStride) {
+            if (object != NULL)
+                Py_INCREF(object);
     }
     Trajectory() {
+    }
+    ~Trajectory() {
+        //Py_DECREF(object);
     }
     /**
      * Get the number of frames in the Trajectory.
@@ -46,6 +53,7 @@ public:
         return ptr[(frame*frameStride+feature*featureStride)/sizeof(T)];
     }
 private:
+    PyObject* object;
     char* data;
     int numFrames, numFeatures;
     int frameStride, featureStride;
