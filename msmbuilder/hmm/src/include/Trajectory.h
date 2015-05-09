@@ -30,7 +30,7 @@ public:
     Trajectory() {
     }
     ~Trajectory() {
-        //Py_DECREF(object);
+        // Py_XDECREF(object);
     }
     /**
      * Get the number of frames in the Trajectory.

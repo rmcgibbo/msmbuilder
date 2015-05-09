@@ -460,21 +460,19 @@ timescales: {timescales}
         """Convert the sequences supplied by the user into the form needed by the C++ code."""
         cdef vector[Trajectory] trajectoryVec
         cdef np.ndarray[float, ndim=2] array
-
         for s in sequences:
             array = s
             trajectoryVec.push_back(Trajectory(<PyObject*> array, <char*> &array[0,0], array.shape[0], array.shape[1], array.strides[0], array.strides[1]))
-            return trajectoryVec
+        return trajectoryVec
 
     cdef vector[Trajectory] _convert_sequences_to_vector_double(self, sequences):
         """Convert the sequences supplied by the user into the form needed by the C++ code."""
         cdef vector[Trajectory] trajectoryVec
         cdef np.ndarray[double, ndim=2] array
-
         for s in sequences:
             array = s
             trajectoryVec.push_back(Trajectory(<PyObject*> array, <char*> &array[0,0], array.shape[0], array.shape[1], array.strides[0], array.strides[1]))
-            return trajectoryVec
+        return trajectoryVec
 
     def _init(self, sequences):
         """Find initial means (hot start)"""
@@ -537,7 +535,6 @@ timescales: {timescales}
         fitter.set_transmat(<double*> &transmat[0,0])
         fitter.set_means_and_variances(<double*> &means[0,0], <double*> &vars[0,0])
         try:
-            print('_fit_double...')
             fitter.fit(trajectoryVec, self.thresh)
         finally:
             del fitter
