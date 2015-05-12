@@ -160,7 +160,8 @@ extensions.append(
               sources=[pjoin(HMMDIR, 'gaussian.pyx')]+
                       glob.glob(pjoin(HMMDIR, 'src/*.cpp')),
               libraries=compiler.compiler_libraries_openmp,
-              extra_compile_args=compiler.compiler_args_sse3 + compiler.compiler_args_openmp,
+              extra_link_args=['/DEBUG'],
+              extra_compile_args=compiler.compiler_args_sse3 + compiler.compiler_args_openmp + ['/Zi'],
               include_dirs=[np.get_include(),
                             HMMDIR,
                             pjoin(HMMDIR, 'src/include/'),
