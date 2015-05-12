@@ -25,21 +25,35 @@ public:
      */
     Trajectory(PyObject* object, char* data, int numFrames, int numFeatures, int frameStride, int featureStride) :
         object(object), data(data), numFrames(numFrames), numFeatures(numFeatures), frameStride(frameStride), featureStride(featureStride) {
-            // printf("Trajectory(s) %p\n", object);
             if (object != NULL)
                 Py_INCREF(object);
     }
-    Trajectory() : object(NULL) {
-        // printf("Trajectory() %p\n", object);
+
+    Trajectory() : object(NULL), data(NULL) {
+
     }
     
     Trajectory(const Trajectory& other) : object(other.object), data(other.data), numFrames(other.numFrames), numFeatures(other.numFeatures), frameStride(other.frameStride), featureStride(other.featureStride){
-        if (object != NULL)
+		if (object != NULL)
             Py_INCREF(object);
     }
+
+	Trajectory& operator=(const Trajectory & other) {
+		if (this != &other){
+			object = other.object;
+			data = other.data;
+			numFrames = other.numFrames;
+			numFeatures = other.numFeatures;
+			frameStride = other.frameStride;
+			featureStride = other.featureStride;
+
+			if (object != NULL)
+				Py_INCREF(object);
+		}
+		return *this;
+	}
     
     ~Trajectory() {
-        // printf("~Trajectory() %p\n", object);
         Py_XDECREF(object);
     }
     /**
@@ -59,6 +73,10 @@ public:
      */
     template <class T>
     const T& get(int frame, int feature) const {
+		if (data == NULL) {
+			fprintf(stderr, "BIG PROBLEM\n");
+		}
+
         T* ptr = (T*) data;
         return ptr[(frame*frameStride+feature*featureStride)/sizeof(T)];
     }
