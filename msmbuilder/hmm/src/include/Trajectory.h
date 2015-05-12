@@ -1,6 +1,7 @@
 #ifndef MIXTAPE_TRAJECTORY_H
 #define MIXTAPE_TRAJECTORY_H
 #include "Python.h"
+#include <cstdio>
 
 namespace msmbuilder {
 
@@ -24,13 +25,22 @@ public:
      */
     Trajectory(PyObject* object, char* data, int numFrames, int numFeatures, int frameStride, int featureStride) :
         object(object), data(data), numFrames(numFrames), numFeatures(numFeatures), frameStride(frameStride), featureStride(featureStride) {
+            // printf("Trajectory(s) %p\n", object);
             if (object != NULL)
                 Py_INCREF(object);
     }
-    Trajectory() {
+    Trajectory() : object(NULL) {
+        // printf("Trajectory() %p\n", object);
     }
+    
+    Trajectory(const Trajectory& other) : object(other.object), data(other.data), numFrames(other.numFrames), numFeatures(other.numFeatures), frameStride(other.frameStride), featureStride(other.featureStride){
+        if (object != NULL)
+            Py_INCREF(object);
+    }
+    
     ~Trajectory() {
-        // Py_XDECREF(object);
+        // printf("~Trajectory() %p\n", object);
+        Py_XDECREF(object);
     }
     /**
      * Get the number of frames in the Trajectory.
