@@ -1,9 +1,11 @@
 from __future__ import print_function
-import numpy as np
+
 from libc.math cimport sqrt, fabs
-from numpy import (zeros, allclose, real, ascontiguousarray, asfortranarray)
+
+import numpy as np
 import scipy.linalg
 import scipy.special
+from quadprog import solve_qp
 
 include "cy_blas.pyx"
 
@@ -122,10 +124,10 @@ def speigh(double[:, ::1] A, double[:, ::1] B, double rho, v_init=None,
     if tau < TAU_NEAR_ZERO_CUTOFF:
         if B_is_diagonal:
             print('Path [1]: tau=0, diagonal B')
-            _speigh_path_1(A, b, x, eps, rho_e, maxiter, tol)
+            x, _ = _speigh_path_1(A, b, x, eps, rho_e, maxiter, tol)
         else:
             print('Path [2]: tau=0, general B')
-            _speigh_path_2(A, B, x, eps, rho_e, maxiter, tol)
+            x, _ = _speigh_path_2(A, B, x, eps, rho_e, maxiter, tol)
 
     # Proposition 1 and the "variational renormalization" described in [1].
     # Use the sparsity pattern in 'x', but ignore the loadings and rerun an
@@ -157,7 +159,7 @@ def speigh(double[:, ::1] A, double[:, ::1] B, double rho, v_init=None,
     return u, v
 
 
-cdef int _speigh_path_1(double[:, ::1] A, double[::1] b, double[::1] x, double eps, double rho_e, int maxiter, double tol):
+cdef _speigh_path_1(double[:, ::1] A, double[::1] b, double[::1] x, double eps, double rho_e, int maxiter, double tol):
     cdef int i
     cdef int N = len(A)
     cdef double[::1] w = np.empty(N)
@@ -172,6 +174,7 @@ cdef int _speigh_path_1(double[:, ::1] A, double[::1] b, double[::1] x, double e
         cdgemv_N(A, x, Ax)
         # check for absolute change in the rayleigh quotient
         old_rq, rq = rq, np.dot(Ax, x) / np.dot(np.multiply(b, x), x)
+        # print('rq', rq)
         if fabs(rq - old_rq) < tol or np.isnan(rq):
             break
 
@@ -183,51 +186,37 @@ cdef int _speigh_path_1(double[:, ::1] A, double[::1] b, double[::1] x, double e
 
         for j in range(N):
             x[j] = gamma[j] * sign(Ax[j]) / (b[j] * sum_gamma_over_b)
-    return i
+
+    return x, i
 
 
-cdef int _speigh_path_2(double[:, ::1] A, double[:, ::1] B, double[::1] x, double eps, double rho_e, int maxiter, double tol):
+cdef _speigh_path_2(double[:, ::1] A, double[:, ::1] B, double[::1] x, double eps, double rho_e, int maxiter, double tol):
     cdef int i
     cdef int N = len(A)
     cdef double[::1] Ax = np.empty(N)
-    cdef double[::1] absAx = np.empty(N)
     cdef double[::1] gamma = np.empty(N)
-    cdef double[::1] w = np.empty(N)
     cdef double[::1] s = np.empty(N)
+    cdef double[::1] zeros = np.zeros(N)
+    cdef double w_j
     cdef double rq = np.inf
     cdef double old_rq = np.inf
+    cdef double[:, ::1] eye = np.eye(N)
 
     for i in range(maxiter):
         cdgemv_N(A, x, Ax)
         # check for absolute change in the rayleigh quotient
         old_rq, rq = rq, np.dot(Ax, x) / np.dot(np.dot(B, x), x)
+        # print('rq', rq)
         if fabs(rq - old_rq) < tol:
             break
         for j in range(N):
-            w[j] = 1.0 / (fabs(x[j]) + eps)
-            absAx[j] = fabs(Ax[j])
-            gamma[j] = absAx[j] - (rho_e/2) * w[j]
+            w_j = 1.0 / (fabs(x[j]) + eps)
+            gamma[j] = fabs(Ax[j]) - (rho_e/2) * w_j
             s[j]  = sign(Ax[j])
         S = np.diag(s)
-        SBSi = np.ascontiguousarray(scipy.linalg.pinv(np.dot(S, B).dot(S)))
-        _problem1(SBSi, gamma)
+        SBSi = scipy.linalg.pinv(np.dot(S, B).dot(S))
+        # solve QP on line 20 of algorithm 1
+        soln, val = solve_qp(SBSi, zeros, eye, gamma)[0:2]
+        x = np.dot(S, SBSi).dot(soln) / sqrt(2*val)
 
-
-def _problem1(double[:, ::1] A, double[::1] gamma):
-    # argmin_x 0.5 * (gamma + y).T * A * (gamma + y)
-    # subject to y >= 0
-
-    # gradient is np.dot(A, gamma + y)
-    cdef int i, j
-    cdef int N = len(A)
-    cdef double[::1] grad = np.empty(N)
-    cdef double[::1] y = np.zeros(N)
-    cdef double[::1] gammapx = np.zeros(N)
-    cdef double alpha = 0.01
-
-    for i in range(10):
-        for j in range(N):
-            gammapx[j] = gamma[j] + y[j]
-
-        cdgemv_N(A, gammapx, grad)
-        y - alpha*grad
+    return x, i
