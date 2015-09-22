@@ -16,6 +16,34 @@ cdef double ADMM_PENALTY_RHO_MAX = 2**10
 cdef double ADMM_PENALTY_RHO_MIN = 2**-10
 
 
+def scdeflate(A, x):
+    """Schur complement matrix deflation
+
+    Eliminate the influence of a psuedo-eigenvector of A using the Schur complement
+    deflation technique from [1]::
+
+        A_new = A - \frac{A x x^T A}{x^T A x}
+
+    Parameters
+    ----------
+    A : np.ndarray, shape=(N, N)
+        A matrix
+    x : np.ndarray, shape=(N, )
+        A vector, ideally one that is "close to" an eigenvector of A
+
+    Returns
+    -------
+    A_new : np.ndarray, shape=(N, N)
+        A new matrix, determined from A by eliminating the influence of x
+
+    References
+    ----------
+    ... [1] Mackey, Lester. "Deflation Methods for Sparse PCA." NIPS. Vol.
+        21. 2008.
+    """
+    return A - np.outer(np.dot(A, x), np.dot(x, A)) / np.dot(np.dot(x, A), x)
+
+
 def speigh(double[:, ::1] A, double[:, ::1] B, double rho, double eps=1e-6,
            double tol=1e-8, int maxiter=100, int verbose=False):
     """Find a sparse approximate generalized eigenpair.
@@ -104,7 +132,7 @@ def speigh(double[:, ::1] A, double[:, ::1] B, double rho, double eps=1e-6,
             f -= rho_e * log(fabs(x[j]) + eps)
 
         if verbose:
-            print("f=%.5f" % f)
+            print("f=%.5f,  x" % f, np.asarray(x))
         if abs(old_f - f) < tol:
             break
 
@@ -116,7 +144,9 @@ def speigh(double[:, ::1] A, double[:, ::1] B, double rho, double eps=1e-6,
         for j in range(N):
             w[j] = rho_e / (2*tau*(fabs(x[j]) + eps))
 
-        solve_admm(b, w, B, x, tol=tol, maxiter=maxiter, verbose=verbose)
+        f2 = solve_admm(b, w, B, x, tol=tol, maxiter=maxiter, verbose=verbose)
+        if verbose:
+            print('  f2', f2)
 
     # Proposition 1 and the "variational renormalization" described in [1].
     # Use the sparsity pattern in 'x', but ignore the loadings and rerun an
@@ -223,6 +253,8 @@ cpdef double solve_admm(const double[::1] b, const double[::1] w,
             for j in range(N):
                 u[j] *= ADMM_PENALTY_TAU_FACTOR
 
+    return 0.5*np.dot(x,x) - np.dot(x,b) + 0.5*np.dot(b,b) + np.sum(np.abs(np.multiply(w, x)))
+
 
 cdef soft_thresh(const double[::1] k, const double[::1] a, double[::1] out):
     cdef int i
@@ -255,13 +287,3 @@ cdef project(const double[::1] v, const double[:, ::1] B, double[::1] out):
         norm = sqrt(norm2)
         for j in range(N):
             out[j] = v[j] / norm
-
-
-
-print('_speigh')
-N = 10
-random = np.random.RandomState(0)
-A = scipy.stats.wishart(scale=np.eye(N), seed=random).rvs()
-B = scipy.stats.wishart(scale=np.eye(N), seed=random).rvs()
-u, x = speigh(A, B, rho=3)
-print(x)
