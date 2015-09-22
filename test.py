@@ -438,7 +438,7 @@ def test_admm_vs_cvxpy_1():
 
 def test_admm_vs_cvxpy_2():
     n = 1000
-    random = np.random
+    random = np.random.RandomState(0)
     b = 10*random.randn(n)
     w = 10*random.randn(n)
     B = scipy.stats.wishart(scale=np.eye(n), seed=random).rvs()
@@ -456,7 +456,7 @@ def test_admm_vs_cvxpy_2():
     t1 = time.time()
     print('  t1', t1 - start)
 
-    x3, f3 = solve_admm2(b, w, B, maxiter=1000)
+    x3, f3 = solve_admm2(b, w, B, x0=x2, maxiter=1000)
     print('admm 2 ', f3, np.sum(np.abs(x3)>1e-6))
     print('  t2', time.time() - t1)
 
