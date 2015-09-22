@@ -44,10 +44,11 @@ def solve_admm2_x_fista(b, A, v, w, rho, x0):
     x = np.zeros(n)
     x_old = np.zeros(n)
 
-    #import scipy.linalg
+    import scipy.linalg
     step = 1/(rho*np.max(scipy.linalg.eigvalsh(A.T.dot(A))))
     #print(step)
-    # step = 1e-5
+    #print(step)
+    step = 1e-5
 
     term1 = rho*A.T.dot(A) + np.eye(n)
     term2 = rho*A.T.dot(v) + b
