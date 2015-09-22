@@ -44,10 +44,10 @@ def solve_admm2_x_fista(b, A, v, w, rho, x0):
     x = np.zeros(n)
     x_old = np.zeros(n)
 
-    import scipy.linalg
-    step = 1/(rho*np.max(scipy.linalg.eigvalsh(A.T.dot(A))))
-    #print(step)
-    #print(step)
+    #import scipy.linalg
+    #step = 1/(rho*np.max(scipy.linalg.eigvalsh(A.T.dot(A))))
+    # print(step)
+    # print(step)
     step = 1e-5
 
     term1 = rho*A.T.dot(A) + np.eye(n)
@@ -55,29 +55,33 @@ def solve_admm2_x_fista(b, A, v, w, rho, x0):
 
     t = 1
     eps = np.finfo(np.float).eps
+
     f, old_f = np.finfo(np.float).max, np.finfo(np.float).max
     for i in range(1000):
         old_f = f
+        x_old[:] = x[:]
+
         # x_{t+1} = \argmin
         #  ||D(w)x||_1 + (1/2n) ||x - x_t*n\grad(f)||^2
 
-        x_old[:] = x[:]
         x = soft_thresh(np.abs(w)*step, y - step* (term1.dot(y)-term2))
 
-        if i == 0:
-            y = x
-        else:
-            t_new = (1 + np.sqrt(1 + 4*t**2)) / 2
-            y = x + (t-1)/t_new * (x - x_old)
-            t = t_new
-
+        t_new = (1 + np.sqrt(1 + 4*t**2)) / 2
+        y = x + (t-1)/t_new * (x - x_old)
+        t = t_new
 
         f = 0.5*np.linalg.norm(y-b)**2 + 0.5*rho*np.linalg.norm(A.dot(y)-v)**2 + np.sum(np.abs(np.multiply(w, y)))
-        if abs(f - old_f) < eps:
+        if i > 1 and abs(f - old_f) < eps:
             break
 
-    print('solve_admm2_x_fsta f', f, i)
+    print('solve_admm2_x_fista f', f, i)
     return y
+        # if abs(f - old_f) < eps:
+        #     print('f', i)
+        #     if f < old_f:
+        #         return y
+        #     return x_old
+
 
 def solve_admm2_x_ista(b, A, v, w, rho, x0):
     # 1/2 ||x-b||^2  +  (p/2) ||Ax - v||^2  +  ||D(w)x||_1
@@ -222,6 +226,7 @@ def solve_admm2(b, w, B, x0=None, tol=1e-6, maxiter=100):
     I = np.eye(n)
 
     A = scipy.linalg.cholesky(B)
+    tol = 1e-4
 
     for i in range(maxiter):
         z_old[:] = z[:]
@@ -235,7 +240,6 @@ def solve_admm2(b, w, B, x0=None, tol=1e-6, maxiter=100):
 
         x = x1
 
-
         z = project(A.dot(x) + u, I)
         u = u + (A.dot(x) - z)
 
@@ -246,10 +250,17 @@ def solve_admm2(b, w, B, x0=None, tol=1e-6, maxiter=100):
         # print('residuals ', r, s, 'rho', rho)
         if r < np.sqrt(n)*tol and s < np.sqrt(n)*tol:
             break
-        fun1 =  0.5*np.dot(x-b, x-b) + np.sum(np.abs(np.multiply(w, x)))
+        # fun1 =  0.5*np.dot(x-b, x-b) + np.sum(np.abs(np.multiply(w, x)))
         # fun2 =  0.5*np.dot(z-b, z-b) + np.sum(np.abs(np.multiply(w, z)))
         # print('admm2 fun', fun1, np.dot(x,B).dot(x))
 
+        # Varying the penalty parameter, eq. (3.13)
+        if r > 10 * s and rho < 2**10:
+            rho *= 2
+            u /= 2
+        elif s > 10 * s and rho > 2**-10:
+            rho /= 2
+            u *= 2
 
     x = project(x, B)
     print('i', i)
@@ -456,7 +467,7 @@ def test_admm_vs_cvxpy_2():
     t1 = time.time()
     print('  t1', t1 - start)
 
-    x3, f3 = solve_admm2(b, w, B, x0=x2, maxiter=1000)
+    x3, f3 = solve_admm2(b, w, B, maxiter=1000)
     print('admm 2 ', f3, np.sum(np.abs(x3)>1e-6))
     print('  t2', time.time() - t1)
 
@@ -480,25 +491,80 @@ def test_admm_vs_cvxpy_3():
     print('admm 2 ', f3, x3)
 
 
-
-#  Lasso-like
-#  min_x  1/2 ||x-b||^2  +  (p/2) ||Ax - v||^2  +  ||D(w)x||_1
-#
-#  ADMM:
-#  min_x (1/2) ||x-b||^2  +  (p/2) ||Ax - v||^2  + (gamma/2) ||x-z||^2
+def test_admm3():
+    from mdtraj.utils import timing
+    from msmbuilder.decomposition._speigh import solve_admm, solve_admm2
 
 
-#  min_z ||D(w)z||_1 + (gamma/2) ||z-v||^2
-#        closed form soft-thresholding
+    n = 1000
+    random = np.random.RandomState(0)
+    b = 100*random.randn(n)
+    w = 100*random.randn(n)
+    B = scipy.stats.wishart(scale=np.eye(n), seed=random).rvs()
+
+
+    x2 = np.zeros(n)
+    with timing('admm1'):
+        f2 = solve_admm(b, w, B, x2, maxiter=1000)
+    print('admm 1 ', f2, np.sum(np.abs(x2)>1e-6))
+
+
+    x3 = np.zeros(n)
+    B_maxeig = np.max(scipy.linalg.eigvalsh(B))
+    B_chol = np.ascontiguousarray(scipy.linalg.cholesky(B))
+
+    with timing('admm2'):
+        f3 = solve_admm2(b, w, B, x3, B_maxeig, B_chol, tol=1e-3, maxiter=1000, verbose=2)
+    print('admm 2 ', f3, np.sum(np.abs(x3)>1e-6))
 
 
 
+def test_admm4():
+    n = 100
+    random = np.random#.RandomState(0)
+    A = scipy.stats.wishart(scale=np.eye(n), seed=random).rvs()
+    B = scipy.stats.wishart(scale=np.eye(n), seed=random).rvs() #+ np.eye(n)
+    B = np.eye(n)
+    B[0,1] = 0.1
+    B[1,0] = 0.1
+    B[10,30] = 0.5
+    B[30,10] = 0.5
+
+    print(scipy.linalg.eigvalsh(A,B))
+    print(np.linalg.eigvalsh(B))
+
+    from msmbuilder.decomposition._speigh import speigh
+
+    print(speigh(A, B, rho=1e-1, method=1))
+    # print(speigh(A, B, rho=1e-1, method=3))
 
 
+def build_dataset():
+    from msmbuilder.example_datasets import DoubleWell
+    slow = [DoubleWell(random_state=0).get()['trajectories'][0][::10]]
+    data = []
 
+    # each trajectory is a double-well along the first dof,
+    # and then 9 degrees of freedom of gaussian white noise.
+    for s in slow:
+        t = np.hstack((s, np.random.randn(len(s), 500)))
+        data.append(t)
+    return data
 
+def test_sparsetica_1():
+    from mdtraj.utils import timing
+    from msmbuilder.decomposition import tICA
+    ds = build_dataset()
+    tica = tICA().fit(ds)
 
+    A = tica.offset_correlation_
+    B = tica.covariance_
+    gamma = 0.06
+    B = B + (gamma / len(B)) * np.trace(B)+np.eye(len(B))
 
+    with timing():
+        print(speigh(A, B, rho=1e-2, method=1, verbose=1, tol=1e-8))
+    #print(ds)
 
 
 

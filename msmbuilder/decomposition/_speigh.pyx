@@ -45,7 +45,7 @@ def scdeflate(A, x):
 
 
 def speigh(double[:, ::1] A, double[:, ::1] B, double rho, double eps=1e-6,
-           double tol=1e-8, int maxiter=100, int verbose=False):
+           double tol=1e-8, int maxiter=100, int verbose=False, int method=1):
     """Find a sparse approximate generalized eigenpair.
 
     The generalized eigenvalue equation, :math:`Av = lambda Bv`,
@@ -84,6 +84,11 @@ def speigh(double[:, ::1] A, double[:, ::1] B, double rho, double eps=1e-6,
         Convergence criteria for the eigensolver.
     maxiter : int
         Maximum number of iterations.
+    method : int
+        1: Default ADMM solver.
+        2. Modified ADMM solver. This solver is can be significantly slower
+           than the default solver, but can be more accurate in some cases.
+        3. Interior
 
     Returns
     -------
@@ -123,6 +128,13 @@ def speigh(double[:, ::1] A, double[:, ::1] B, double rho, double eps=1e-6,
     # solution)
     x = scipy.linalg.eigh(A, B, eigvals=(N-1, N-1))[1][:,0]
 
+
+    cdef double B_maxeig = 0
+    cdef double[:, ::1] B_chol
+    if method == 2:
+        B_maxeig = np.max(scipy.linalg.eigvalsh(B))
+        B_chol = np.ascontiguousarray(scipy.linalg.cholesky(B))
+
     for i in range(maxiter):
         old_f = f
         cdgemv_N(A, x, Ax)   # Ax = dot(A, x)
@@ -132,7 +144,7 @@ def speigh(double[:, ::1] A, double[:, ::1] B, double rho, double eps=1e-6,
             f -= rho_e * log(fabs(x[j]) + eps)
 
         if verbose:
-            print("f=%.5f,  x" % f, np.asarray(x))
+            print("QCQP objective=%.5f" % f)
         if abs(old_f - f) < tol:
             break
 
@@ -144,15 +156,24 @@ def speigh(double[:, ::1] A, double[:, ::1] B, double rho, double eps=1e-6,
         for j in range(N):
             w[j] = rho_e / (2*tau*(fabs(x[j]) + eps))
 
-        f2 = solve_admm(b, w, B, x, tol=tol, maxiter=maxiter, verbose=verbose)
-        if verbose:
-            print('  f2', f2)
+        if method == 1:
+            f2 = solve_admm(b, w, B, x, tol=tol, maxiter=maxiter, verbose=verbose)
+        elif method == 2:
+            f2 = solve_admm2(b, w, B, x, B_maxeig=B_maxeig, A=B_chol, tol=tol, maxiter=maxiter, verbose=verbose)
+        elif method == 3:
+            x, f2 = solve_cvxpy(b, w, B)
+        else:
+            raise ValueError('Unknown method')
+
+    if verbose:
+        print('Optimized vector (before renormalization)')
+        print(np.asarray(x))
 
     # Proposition 1 and the "variational renormalization" described in [1].
     # Use the sparsity pattern in 'x', but ignore the loadings and rerun an
     # unconstrained GEV problem on the submatrices determined by the nonzero
     # entries in our optimized x
-    mask = (np.abs(x) > tol)
+    mask = (np.abs(x) > 0)
     grid = np.ix_(mask, mask)
     Ak, Bk = np.asarray(A)[grid], np.asarray(B)[grid]  # form the submatrices
 
@@ -174,6 +195,172 @@ def speigh(double[:, ::1] A, double[:, ::1] B, double rho, double eps=1e-6,
         v *= np.sign(np.sum(v))
 
     return u, v
+
+
+cpdef double solve_admm2(const double[::1] b, const double[::1] w,
+                        const double[:, ::1] B, double[::1] x,
+                        double B_maxeig, double[:, ::1] A,
+                        double tol=1e-4, int maxiter=100, int verbose=0):
+    """Solve a particular convex optimization problem with ADMM
+
+    Minimize    1/2 ||x-b||^2 + ||D(w)x||_1
+    subject to  x^T B x <= 1
+
+    Parameters
+    ----------
+    b : array, shape=(n,)
+    w : array, shape=(n,)
+    B : array, shape=(n,n)
+    x : array, shape=(n,)
+    B_maxeig : float
+        Largest eigenvalue of B
+    A : array, shape=(n,n)
+        Cholesky factor of B
+    tol : float, default=1e-6
+    maxiter : int, default=100
+    """
+    cdef int i, j, k
+    cdef int N = len(b)
+    if not (len(b) == len(w) == len(x) == B.shape[0] == B.shape[1]):
+        raise ValueError('Incompatible matrix dimensions')
+
+    cdef double rho = ADMM_RHO_INITIAL
+    cdef double[::1] z = np.copy(x)
+    cdef double[::1] z_old = np.copy(x)
+    cdef double[::1] u = np.zeros(N)
+    cdef double[::1] v = np.zeros(N)
+
+    cdef double[::1] Ax = np.empty(N)
+
+    for i in range(maxiter):
+        z_old[:] = z
+        for j in range(N):
+            v[j] = z[j] - u[j]
+
+        k = solve_admm2_x_ista(b, A, v, w=w, rho=rho, x=x, B=B, B_maxeig=B_maxeig, tol=tol)
+
+        cdgemv_N(A, x, Ax)
+        for j in range(N):
+            v[j] = Ax[j] + u[j]
+        projectI(v, z)
+
+        for j in range(N):
+            u[j] = u[j] + (Ax[j] - z[j])
+
+        r = np.linalg.norm(Ax.base - z.base)             # primal residual
+        s = rho * np.linalg.norm(z.base - z_old.base)    # dual residual
+
+        if verbose > 1:
+            print('ista iters ', k)
+            print('admm2 obj', 0.5*np.linalg.norm(x.base-b.base)**2 + np.sum(np.abs(np.multiply(w, x))))
+            print('residuals ', r, s)
+            print()
+        if r < np.sqrt(N)*tol and s < np.sqrt(N)*tol:
+            break
+
+    project(x, B, x)
+    return 0.5*np.dot(x,x) - np.dot(x,b) + 0.5*np.dot(b,b) + np.sum(np.abs(np.multiply(w, x)))
+
+
+cdef int solve_admm2_x_ista(const double[::1] b, const double[:, ::1] A,
+                            const double[::1] v, const double[::1] w,
+                            double rho, double[::1] x, const double[:, ::1] B,
+                            double B_maxeig, double tol):
+    """
+    Solve the following optimization problem
+    Minimize_x  1/2 ||x-b||^2  +  (p/2) ||Ax - v||^2  +  ||D(w)x||_1
+
+    Parameters
+    ----------
+    b : array, shape=(n,)
+    A : array, shape=(n,n)
+    v : array, shape=(n,)
+    w : array, shape=(n,)
+    x : array, shape=(n,)
+        Contains solution on exit
+    B : array, shape=(n,n)
+        (A.T * A)
+    B_maxeig : float
+        Largest eigenvalue of (A.T * A)
+    """
+
+    cdef int i, j
+    cdef int N = len(b)
+    if not (len(b) == len(w) == len(x) == len(v) == A.shape[0] == A.shape[1]):
+        raise ValueError('Incompatible matrix dimensions')
+
+    cdef double step = 1 / (rho * B_maxeig)
+    cdef double f, old_f
+    cdef double[::1] old_x = np.empty(N)
+    cdef double[::1] w_step = np.empty(N)
+    cdef double[::1] Px = np.empty(N)
+    cdef double[:, ::1] P = rho*np.asarray(B)
+    for i in range(N):
+        P[i,i] += 1
+    cdef double[::1] q = rho*np.asarray(A).T.dot(v) + np.asarray(b)
+
+    # tol = 1e-4
+
+    f, old_f = np.finfo(np.float).max, np.finfo(np.float).max
+    for i in range(1000):
+        old_f = f
+        for j in range(N):
+            w_step[j] = step * fabs(w[j])
+
+        cdgemv_N(P, x, Px)
+        for j in range(N):
+            x[j] = x[j] - step*(Px[j] - q[j])
+        soft_thresh(w_step, x, x)
+
+        f = 0.5*np.linalg.norm(x.base - b.base)**2 + \
+            0.5*rho*np.linalg.norm(np.dot(A,x) - v.base)**2 + \
+            np.sum(np.abs(np.multiply(w, x)))
+        if i > 1 and abs(f - old_f) < tol or f > old_f:
+            break
+
+    return i
+    # print('solve_admm2_x_ista f', f, i)
+
+def solve_cvxpy(b, w, B):
+    """Solve a convex optimization problem using cvxpy
+
+    Minimize    1/2 ||x-b||^2 + ||D(w)x||_1
+    subject to  x^T B x <= 1
+
+    Parameters
+    ----------
+    b : array, shape=(n,)
+    w : array, shape=(n,)
+    B : array, shape=(n,n)
+
+    Returns
+    -------
+    xf : array, shape=(n,)
+        The optimal value of x
+    fun : float
+        The value of the objective function at ``xf``
+    """
+    import cvxpy as cp
+    n = len(b)
+    x = cp.Variable(n)
+    #objective = cp.Minimize(
+    #    0.5 * cp.norm2(x-b)**2 + lambd*cp.norm1(cp.diag(w) * x))
+
+    # more accurate this way, expanding out the norm
+    objective = cp.Minimize(
+        0.5*cp.norm2(x)**2 - x.T*np.asarray(b) + cp.norm1(cp.diag(np.asarray(w)) * x))
+
+    constraints = [cp.quad_form(x, np.asarray(B)) <= 1]
+    problem = cp.Problem(objective, constraints)
+    problem.solve()
+    if problem.status != 'optimal':
+        print(problem, problem.status)
+        raise ValueError('No solution found')
+
+    x = np.asarray(x.value)[:,0]
+    x[np.abs(x) < 1e-6] = 0
+    fun = 0.5*np.dot(x-b, x-b) + np.sum(np.abs(np.multiply(w, x)))
+    return x, fun
 
 
 cpdef double solve_admm(const double[::1] b, const double[::1] w,
@@ -256,6 +443,10 @@ cpdef double solve_admm(const double[::1] b, const double[::1] w,
     return 0.5*np.dot(x,x) - np.dot(x,b) + 0.5*np.dot(b,b) + np.sum(np.abs(np.multiply(w, x)))
 
 
+###############################################################################
+## Utilities
+###############################################################################
+
 cdef soft_thresh(const double[::1] k, const double[::1] a, double[::1] out):
     cdef int i
     cdef int N = len(k)
@@ -280,7 +471,20 @@ cdef project(const double[::1] v, const double[:, ::1] B, double[::1] out):
 
     cdgemv_N(B, v, temp)
     cddot(temp, v, &norm2)
-    norm2 = np.dot(v, B).dot(v)
+    # TODO: check
+    # norm2 = np.dot(v, B).dot(v)
+    if norm2 <= 1:
+        out[:] = v[:]
+    else:
+        norm = sqrt(norm2)
+        for j in range(N):
+            out[j] = v[j] / norm
+
+
+cdef projectI(const double[::1] v, double[::1] out):
+    cdef int N = len(v)
+    cdef double norm2
+    cddot(v, v, &norm2)
     if norm2 <= 1:
         out[:] = v[:]
     else:
