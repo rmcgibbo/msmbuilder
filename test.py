@@ -496,10 +496,10 @@ def test_admm3():
     from msmbuilder.decomposition._speigh import solve_admm, solve_admm2
 
 
-    n = 1000
+    n = 10
     random = np.random.RandomState(0)
     b = 100*random.randn(n)
-    w = 100*random.randn(n)
+    w = 100*np.abs(random.randn(n))
     B = scipy.stats.wishart(scale=np.eye(n), seed=random).rvs()
 
 
@@ -514,34 +514,48 @@ def test_admm3():
     B_chol = np.ascontiguousarray(scipy.linalg.cholesky(B))
 
     with timing('admm2'):
-        f3 = solve_admm2(b, w, B, x3, B_maxeig, B_chol, tol=1e-3, maxiter=1000, verbose=2)
+        f3 = solve_admm2(b, w, B, x3, B_maxeig, B_chol, tol=1e-6, maxiter=100, verbose=2)
+        print('x3', x3)
     print('admm 2 ', f3, np.sum(np.abs(x3)>1e-6))
 
+    print('\n\n')
+
+    with timing('admm3'):
+        x4 = np.zeros(n)
+        f3 = solve_admm2(b, w, B, x4, B_maxeig, B_chol, tol=1e-3, maxiter=100, verbose=2, method="qp")
+        print('x4', x4)
+    print('admm 3 ', f3, np.sum(np.abs(x4)>1e-6))
 
 
 def test_admm4():
-    n = 100
+    n = 10
     random = np.random#.RandomState(0)
     A = scipy.stats.wishart(scale=np.eye(n), seed=random).rvs()
-    B = scipy.stats.wishart(scale=np.eye(n), seed=random).rvs() #+ np.eye(n)
+    x0 = 10*random.randn(n)
+    A += np.outer(x0, x0)
+    B = scipy.stats.wishart(scale=np.eye(n), seed=random).rvs() + np.eye(n)
     B = np.eye(n)
-    B[0,1] = 0.1
-    B[1,0] = 0.1
-    B[10,30] = 0.5
-    B[30,10] = 0.5
 
     print(scipy.linalg.eigvalsh(A,B))
     print(np.linalg.eigvalsh(B))
 
     from msmbuilder.decomposition._speigh import speigh
 
-    print(speigh(A, B, rho=1e-1, method=1))
-    # print(speigh(A, B, rho=1e-1, method=3))
+    from mdtraj.utils import timing
+
+    with timing('1'):
+        print(speigh(A, B, rho=1e-1, verbose=1, method=1)[0])
+    with timing('2'):
+        print(speigh(A, B, rho=1e-1, method=2)[0])
+    with timing('3'):
+        print(speigh(A, B, rho=1e-1, verbose=1,  tol=1e-6, method=3)[0])
+    with timing('4'):
+        print(speigh(A, B, rho=1e-1, verbose=1, tol=1e-4, method=4)[0])
 
 
 def build_dataset():
     from msmbuilder.example_datasets import DoubleWell
-    slow = [DoubleWell(random_state=0).get()['trajectories'][0][::10]]
+    slow = [DoubleWell(random_state=0).get()['trajectories'][0][::100]]
     data = []
 
     # each trajectory is a double-well along the first dof,
@@ -563,7 +577,7 @@ def test_sparsetica_1():
     B = B + (gamma / len(B)) * np.trace(B)+np.eye(len(B))
 
     with timing():
-        print(speigh(A, B, rho=1e-2, method=1, verbose=1, tol=1e-8))
+        print(speigh(A, B, rho=1e-2, method=2, verbose=1, tol=1e-8))
     #print(ds)
 
 

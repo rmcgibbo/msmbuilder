@@ -86,9 +86,14 @@ def speigh(double[:, ::1] A, double[:, ::1] B, double rho, double eps=1e-6,
         Maximum number of iterations.
     method : int
         1: Default ADMM solver.
-        2. Modified ADMM solver. This solver is can be significantly slower
-           than the default solver, but can be more accurate in some cases.
-        3. Interior
+        2. Alternate ADMM solver. This solver formulates the constraints in a
+           scaled form, and solves the inner problem with ISTA. Can be
+           significantly slower than the default solver, but can be more
+           accurate in some cases.
+        3. CVXOPT interior point solver for the QCQP.
+        4. Another alternate ADMM solver. Like (2), but instead of solving the
+           L1-regularized QP with ISTA, it solves it with a direct QP solver
+           (Goldfarb and Idnani). This is also relatively slow.
 
     Returns
     -------
@@ -128,10 +133,9 @@ def speigh(double[:, ::1] A, double[:, ::1] B, double rho, double eps=1e-6,
     # solution)
     x = scipy.linalg.eigh(A, B, eigvals=(N-1, N-1))[1][:,0]
 
-
     cdef double B_maxeig = 0
     cdef double[:, ::1] B_chol
-    if method == 2:
+    if method == 2 or method == 4:
         B_maxeig = np.max(scipy.linalg.eigvalsh(B))
         B_chol = np.ascontiguousarray(scipy.linalg.cholesky(B))
 
@@ -159,9 +163,11 @@ def speigh(double[:, ::1] A, double[:, ::1] B, double rho, double eps=1e-6,
         if method == 1:
             f2 = solve_admm(b, w, B, x, tol=tol, maxiter=maxiter, verbose=verbose)
         elif method == 2:
-            f2 = solve_admm2(b, w, B, x, B_maxeig=B_maxeig, A=B_chol, tol=tol, maxiter=maxiter, verbose=verbose)
+            f2 = solve_admm2(b, w, B, x, B_maxeig=B_maxeig, A=B_chol, tol=tol, maxiter=maxiter, verbose=verbose, method='ista')
         elif method == 3:
             x, f2 = solve_cvxpy(b, w, B)
+        elif method == 4:
+            f2 = solve_admm2(b, w, B, x, B_maxeig=B_maxeig, A=B_chol, tol=tol, maxiter=maxiter, verbose=verbose, method='qp')
         else:
             raise ValueError('Unknown method')
 
@@ -200,11 +206,20 @@ def speigh(double[:, ::1] A, double[:, ::1] B, double rho, double eps=1e-6,
 cpdef double solve_admm2(const double[::1] b, const double[::1] w,
                         const double[:, ::1] B, double[::1] x,
                         double B_maxeig, double[:, ::1] A,
-                        double tol=1e-4, int maxiter=100, int verbose=0):
+                        double tol=1e-4, int maxiter=100, int verbose=0,
+                        method="ista"):
     """Solve a particular convex optimization problem with ADMM
 
     Minimize    1/2 ||x-b||^2 + ||D(w)x||_1
     subject to  x^T B x <= 1
+
+    This solver rescales the problem using the cholesky decomposition of B,
+    which slightly complicates the problem, but makes more numerically stable
+    when B has very small eigenvalues.
+
+    After moving the constraint into the z update, the x update is the solution
+    to an L1-regularized QP, can either be solved with ISTA (method='ista'), or
+    with a direct QP solver (method='qp').
 
     Parameters
     ----------
@@ -237,7 +252,20 @@ cpdef double solve_admm2(const double[::1] b, const double[::1] w,
         for j in range(N):
             v[j] = z[j] - u[j]
 
-        k = solve_admm2_x_ista(b, A, v, w=w, rho=rho, x=x, B=B, B_maxeig=B_maxeig, tol=tol)
+        if method == "ista":
+            k = solve_admm2_x_ista(b, A, v, w=w, rho=rho, x=x, B=B, B_maxeig=B_maxeig, tol=tol)
+            if verbose > 1:
+                print('ista iters ', k)
+        elif method == "qp":
+            solve_admm2_x_qp(b, A, v, w, rho, x)
+        else:
+            raise ValueError("Unknown method")
+
+        if verbose > 2:
+            f = 0.5*np.linalg.norm(x.base - b.base)**2 + \
+                0.5*rho*np.linalg.norm(np.dot(A,x) - v.base)**2 + \
+                np.sum(np.abs(np.multiply(w, x)))
+            print('%s %f x' % (method, f), np.asarray(x))
 
         cdgemv_N(A, x, Ax)
         for j in range(N):
@@ -251,7 +279,6 @@ cpdef double solve_admm2(const double[::1] b, const double[::1] w,
         s = rho * np.linalg.norm(z.base - z_old.base)    # dual residual
 
         if verbose > 1:
-            print('ista iters ', k)
             print('admm2 obj', 0.5*np.linalg.norm(x.base-b.base)**2 + np.sum(np.abs(np.multiply(w, x))))
             print('residuals ', r, s)
             print()
@@ -260,6 +287,67 @@ cpdef double solve_admm2(const double[::1] b, const double[::1] w,
 
     project(x, B, x)
     return 0.5*np.dot(x,x) - np.dot(x,b) + 0.5*np.dot(b,b) + np.sum(np.abs(np.multiply(w, x)))
+
+
+def solve_admm2_x_qp(b, A, v, w, rho, out):
+    """Solve the following unconstrained optimization problem
+
+    Minimize_x  1/2 ||x-b||^2  +  (p/2) ||Ax - v||^2  +  ||D(w)x||_1
+
+    using a direct QP solver. Requires the package ``quadprog``
+    (https://pypi.python.org/pypi/quadprog).
+
+    Parameters
+    ----------
+    b : array, shape=(n,)
+    A : array, shape=(n,n)
+    v : array, shape=(n,)
+    rho : float
+    out : array, shape=(n,)
+
+    """
+    from quadprog import solve_qp
+    cdef int N = len(b)
+    if not (len(b) == len(w) == len(v) == A.shape[0] == A.shape[1]):
+        raise ValueError('Incompatible matrix dimensions')
+    """
+    min_x    1/2 x.T P x - q.T x + ||D(w)*x||_1
+    where    P = I + p A.T A
+             q = b + p A.Tv
+    """
+    P = np.eye(N) + rho*np.asarray(A).T.dot(A)
+    q = np.asarray(b) + rho*np.asarray(A).T.dot(v)
+
+    # http://stats.stackexchange.com/a/119896
+    # http://www.aei.tuke.sk/papers/2012/3/02_Bu%C5%A1a.pdf
+    # print('solve_admm2_x_qp')
+
+    """
+    1/2 (x+ - x-).T P (x+ - x-) - q.T (x+ - x-)  + w.T (x+ + x-)
+    s.t. x+ > =0, and x- >= 0
+    """
+
+    P2 = np.zeros((2*N, 2*N))
+    P2[0:N, 0:N] = P
+    P2[0:N, N:2*N] = -P
+    P2[N:2*N, 0:N] = -P
+    P2[N:2*N, N:2*N] = P
+    q2 = np.zeros(2*N)
+    q2[0:N] = q - w
+    q2[N:2*N] = -q - w
+
+    C2 = np.eye(2*N)
+    s2 = np.zeros(2*N)
+
+    # need to slightly break degeneracy so that the P2 matrix is strictly
+    # positive definite (not positive semidefinite)
+    P2 += 1e-4 * np.eye(2*N)
+
+    x, f, xu, iters, lagr, iact = solve_qp(P2, q2, C2, s2)
+    #print(f)
+    final = x[0:N] - x[N:2*N]
+    final[np.abs(final) < 1e-9] = 0
+    out[:] = final[:]
 
 
 cdef int solve_admm2_x_ista(const double[::1] b, const double[:, ::1] A,
@@ -319,7 +407,7 @@ cdef int solve_admm2_x_ista(const double[::1] b, const double[:, ::1] A,
             break
 
     return i
-    # print('solve_admm2_x_ista f', f, i)
+
 
 def solve_cvxpy(b, w, B):
     """Solve a convex optimization problem using cvxpy
