@@ -171,6 +171,9 @@ def speigh(double[:, ::1] A, double[:, ::1] B, double rho, double eps=1e-6,
         else:
             raise ValueError('Unknown method')
 
+        if verbose:
+            print("ADMM objective=%.5f" % f2, np.dot(x,B).dot(x))
+
     if verbose:
         print('Optimized vector (before renormalization)')
         print(np.asarray(x))
@@ -514,6 +517,10 @@ cpdef double solve_admm(const double[::1] b, const double[::1] w,
 
         if verbose > 1:
             print(' rho', rho, ' residuals ', sqrt(r_norm2), sqrt(s_norm2))
+            #print('x', np.asarray(x))
+            #print('z', np.asarray(z))
+            #print('u', np.asarray(u))
+            #print('f', 0.5*np.dot(x,x) - np.dot(x,b) + 0.5*np.dot(b,b) + np.sum(np.abs(np.multiply(w, x))))
 
         if r_norm2 < N*tol*tol and s_norm2 < N*tol*tol:
             break
@@ -559,8 +566,7 @@ cdef project(const double[::1] v, const double[:, ::1] B, double[::1] out):
 
     cdgemv_N(B, v, temp)
     cddot(temp, v, &norm2)
-    # TODO: check
-    # norm2 = np.dot(v, B).dot(v)
+
     if norm2 <= 1:
         out[:] = v[:]
     else:
