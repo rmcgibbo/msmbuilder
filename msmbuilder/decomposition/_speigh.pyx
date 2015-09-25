@@ -133,11 +133,11 @@ def speigh(double[:, ::1] A, double[:, ::1] B, double rho, double eps=1e-6,
     # solution)
     x = scipy.linalg.eigh(A, B, eigvals=(N-1, N-1))[1][:,0]
 
-    cdef double B_maxeig = 0
-    cdef double[:, ::1] B_chol
-    if method == 2 or method == 4:
-        B_maxeig = np.max(scipy.linalg.eigvalsh(B))
-        B_chol = np.ascontiguousarray(scipy.linalg.cholesky(B))
+    cdef double[::1] B_eigvals
+    cdef double[:, ::1] B_eigvecs
+    if method == 1:
+        B_eigvals, B_eigvecs = map(np.ascontiguousarray, scipy.linalg.eigh(B))
+
 
     for i in range(maxiter):
         old_f = f
@@ -161,18 +161,14 @@ def speigh(double[:, ::1] A, double[:, ::1] B, double rho, double eps=1e-6,
             w[j] = rho_e / (2*tau*(fabs(x[j]) + eps))
 
         if method == 1:
-            f2 = solve_admm(b, w, B, x, tol=tol, maxiter=maxiter, verbose=verbose)
+            f2 = solve_admm(b, w, B_eigvals, B_eigvecs, x, tol=tol, maxiter=maxiter, verbose=verbose)
         elif method == 2:
-            f2 = solve_admm2(b, w, B, x, B_maxeig=B_maxeig, A=B_chol, tol=tol, maxiter=maxiter, verbose=verbose, method='ista')
-        elif method == 3:
             x, f2 = solve_cvxpy(b, w, B)
-        elif method == 4:
-            f2 = solve_admm2(b, w, B, x, B_maxeig=B_maxeig, A=B_chol, tol=tol, maxiter=maxiter, verbose=verbose, method='qp')
         else:
             raise ValueError('Unknown method')
 
         if verbose:
-            print("ADMM objective=%.5f" % f2, np.dot(x,B).dot(x))
+            print("ADMM objective=%.5f" % f2)
 
     if verbose:
         print('Optimized vector (before renormalization)')
@@ -204,211 +200,6 @@ def speigh(double[:, ::1] A, double[:, ::1] B, double rho, double eps=1e-6,
         v *= np.sign(np.sum(v))
 
     return u, v
-
-
-cpdef double solve_admm2(const double[::1] b, const double[::1] w,
-                        const double[:, ::1] B, double[::1] x,
-                        double B_maxeig, double[:, ::1] A,
-                        double tol=1e-4, int maxiter=100, int verbose=0,
-                        method="ista"):
-    """Solve a particular convex optimization problem with ADMM
-
-    Minimize    1/2 ||x-b||^2 + ||D(w)x||_1
-    subject to  x^T B x <= 1
-
-    This solver rescales the problem using the cholesky decomposition of B,
-    which slightly complicates the problem, but makes more numerically stable
-    when B has very small eigenvalues.
-
-    After moving the constraint into the z update, the x update is the solution
-    to an L1-regularized QP, can either be solved with ISTA (method='ista'), or
-    with a direct QP solver (method='qp').
-
-    Parameters
-    ----------
-    b : array, shape=(n,)
-    w : array, shape=(n,)
-    B : array, shape=(n,n)
-    x : array, shape=(n,)
-    B_maxeig : float
-        Largest eigenvalue of B
-    A : array, shape=(n,n)
-        Cholesky factor of B
-    tol : float, default=1e-6
-    maxiter : int, default=100
-    """
-    cdef int i, j, k
-    cdef int N = len(b)
-    if not (len(b) == len(w) == len(x) == B.shape[0] == B.shape[1]):
-        raise ValueError('Incompatible matrix dimensions')
-
-    cdef double rho = ADMM_RHO_INITIAL
-    cdef double[::1] z = np.copy(x)
-    cdef double[::1] z_old = np.copy(x)
-    cdef double[::1] u = np.zeros(N)
-    cdef double[::1] v = np.zeros(N)
-
-    cdef double[::1] Ax = np.empty(N)
-
-    for i in range(maxiter):
-        z_old[:] = z
-        for j in range(N):
-            v[j] = z[j] - u[j]
-
-        if method == "ista":
-            k = solve_admm2_x_ista(b, A, v, w=w, rho=rho, x=x, B=B, B_maxeig=B_maxeig, tol=tol)
-            if verbose > 1:
-                print('ista iters ', k)
-        elif method == "qp":
-            solve_admm2_x_qp(b, A, v, w, rho, x)
-        else:
-            raise ValueError("Unknown method")
-
-        if verbose > 2:
-            f = 0.5*np.linalg.norm(x.base - b.base)**2 + \
-                0.5*rho*np.linalg.norm(np.dot(A,x) - v.base)**2 + \
-                np.sum(np.abs(np.multiply(w, x)))
-            print('%s %f x' % (method, f), np.asarray(x))
-
-        cdgemv_N(A, x, Ax)
-        for j in range(N):
-            v[j] = Ax[j] + u[j]
-        projectI(v, z)
-
-        for j in range(N):
-            u[j] = u[j] + (Ax[j] - z[j])
-
-        r = np.linalg.norm(Ax.base - z.base)             # primal residual
-        s = rho * np.linalg.norm(z.base - z_old.base)    # dual residual
-
-        if verbose > 1:
-            print('admm2 obj', 0.5*np.linalg.norm(x.base-b.base)**2 + np.sum(np.abs(np.multiply(w, x))))
-            print('residuals ', r, s)
-            print()
-        if r < np.sqrt(N)*tol and s < np.sqrt(N)*tol:
-            break
-
-    return 0.5*np.dot(x,x) - np.dot(x,b) + 0.5*np.dot(b,b) + np.sum(np.abs(np.multiply(w, x)))
-
-
-def solve_admm2_x_qp(b, A, v, w, rho, out):
-    """Solve the following unconstrained optimization problem
-
-    Minimize_x  1/2 ||x-b||^2  +  (p/2) ||Ax - v||^2  +  ||D(w)x||_1
-
-    using a direct QP solver. Requires the package ``quadprog``
-    (https://pypi.python.org/pypi/quadprog).
-
-    Parameters
-    ----------
-    b : array, shape=(n,)
-    A : array, shape=(n,n)
-    v : array, shape=(n,)
-    rho : float
-    out : array, shape=(n,)
-
-    """
-    from quadprog import solve_qp
-    cdef int N = len(b)
-    if not (len(b) == len(w) == len(v) == A.shape[0] == A.shape[1]):
-        raise ValueError('Incompatible matrix dimensions')
-    """
-    min_x    1/2 x.T P x - q.T x + ||D(w)*x||_1
-    where    P = I + p A.T A
-             q = b + p A.Tv
-    """
-    P = np.eye(N) + rho*np.asarray(A).T.dot(A)
-    q = np.asarray(b) + rho*np.asarray(A).T.dot(v)
-
-    # http://stats.stackexchange.com/a/119896
-    # http://www.aei.tuke.sk/papers/2012/3/02_Bu%C5%A1a.pdf
-    # print('solve_admm2_x_qp')
-
-    """
-    1/2 (x+ - x-).T P (x+ - x-) - q.T (x+ - x-)  + w.T (x+ + x-)
-    s.t. x+ > =0, and x- >= 0
-    """
-
-    P2 = np.zeros((2*N, 2*N))
-    P2[0:N, 0:N] = P
-    P2[0:N, N:2*N] = -P
-    P2[N:2*N, 0:N] = -P
-    P2[N:2*N, N:2*N] = P
-    q2 = np.zeros(2*N)
-    q2[0:N] = q - w
-    q2[N:2*N] = -q - w
-
-    C2 = np.eye(2*N)
-    s2 = np.zeros(2*N)
-
-    # need to slightly break degeneracy so that the P2 matrix is strictly
-    # positive definite (not positive semidefinite)
-    P2 += 1e-4 * np.eye(2*N)
-
-    x, f, xu, iters, lagr, iact = solve_qp(P2, q2, C2, s2)
-    #print(f)
-    final = x[0:N] - x[N:2*N]
-    final[np.abs(final) < 1e-9] = 0
-    out[:] = final[:]
-
-
-cdef int solve_admm2_x_ista(const double[::1] b, const double[:, ::1] A,
-                            const double[::1] v, const double[::1] w,
-                            double rho, double[::1] x, const double[:, ::1] B,
-                            double B_maxeig, double tol):
-    """
-    Solve the following optimization problem
-    Minimize_x  1/2 ||x-b||^2  +  (p/2) ||Ax - v||^2  +  ||D(w)x||_1
-
-    Parameters
-    ----------
-    b : array, shape=(n,)
-    A : array, shape=(n,n)
-    v : array, shape=(n,)
-    w : array, shape=(n,)
-    x : array, shape=(n,)
-        Contains solution on exit
-    B : array, shape=(n,n)
-        (A.T * A)
-    B_maxeig : float
-        Largest eigenvalue of (A.T * A)
-    """
-
-    cdef int i, j
-    cdef int N = len(b)
-    if not (len(b) == len(w) == len(x) == len(v) == A.shape[0] == A.shape[1]):
-        raise ValueError('Incompatible matrix dimensions')
-
-    cdef double step = 1 / (rho * B_maxeig)
-    cdef double f, old_f
-    cdef double[::1] old_x = np.empty(N)
-    cdef double[::1] w_step = np.empty(N)
-    cdef double[::1] Px = np.empty(N)
-    cdef double[:, ::1] P = rho*np.asarray(B)
-    for i in range(N):
-        P[i,i] += 1
-    cdef double[::1] q = rho*np.asarray(A).T.dot(v) + np.asarray(b)
-
-    # tol = 1e-4
-
-    f, old_f = np.finfo(np.float).max, np.finfo(np.float).max
-    for i in range(1000):
-        old_f = f
-        for j in range(N):
-            w_step[j] = step * fabs(w[j])
-
-        cdgemv_N(P, x, Px)
-        for j in range(N):
-            x[j] = x[j] - step*(Px[j] - q[j])
-        soft_thresh(w_step, x, x)
-
-        f = 0.5*np.linalg.norm(x.base - b.base)**2 + \
-            0.5*rho*np.linalg.norm(np.dot(A,x) - v.base)**2 + \
-            np.sum(np.abs(np.multiply(w, x)))
-        if i > 1 and abs(f - old_f) < tol or f > old_f:
-            break
-
-    return i
 
 
 def solve_cvxpy(b, w, B):
@@ -454,7 +245,8 @@ def solve_cvxpy(b, w, B):
 
 
 cpdef double solve_admm(const double[::1] b, const double[::1] w,
-                        const double[:, ::1] B, double[::1] x,
+                        const double[::1] B_eigvals,
+                        const double[:, ::1] B_eigvecs, double[::1] x,
                         double tol=1e-6, int maxiter=100, int verbose=0):
     """Solve a particular convex optimization problem with ADMM
 
@@ -465,7 +257,8 @@ cpdef double solve_admm(const double[::1] b, const double[::1] w,
     ----------
     b : array, shape=(n,)
     w : array, shape=(n,)
-    B : array, shape=(n,n)
+    B_eigvals : array, shape=(n,)
+    B_eigvecs : array, shape=(n,n)
     x : array, shape=(n,)
     tol : float, default=1e-6
     maxiter : int, default=100
@@ -474,7 +267,7 @@ cpdef double solve_admm(const double[::1] b, const double[::1] w,
     cdef int i, j
     cdef int N = len(b)
 
-    if not (len(b) == len(w) == len(x) == B.shape[0] == B.shape[1]):
+    if not (len(b) == len(w) == len(x) == len(B_eigvals) == B_eigvecs.shape[0] == B_eigvecs.shape[1]):
         raise ValueError('Incompatible matrix dimensions')
 
     cdef double rho = ADMM_RHO_INITIAL
@@ -490,10 +283,6 @@ cpdef double solve_admm(const double[::1] b, const double[::1] w,
     cdef double[::1] r = np.empty(N)
     cdef double[::1] s = np.empty(N)
 
-    cdef double[::1] eigvals_B
-    cdef double[:, ::1] eigvecs_B
-    eigvals_B, eigvecs_B = map(np.ascontiguousarray, scipy.linalg.eigh(B))
-
     for i in range(maxiter):
         z_old[:] = z[:]
 
@@ -507,7 +296,7 @@ cpdef double solve_admm(const double[::1] b, const double[::1] w,
         for j in range(N):
             v[j] = x[j] + u[j]
 
-        project(v, eigvals_B, eigvecs_B, z)
+        project(v, B_eigvals, B_eigvecs, z)
 
         for j in range(N):
             r[j] = x[j] - z[j]               # primal residual

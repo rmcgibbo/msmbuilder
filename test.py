@@ -531,26 +531,15 @@ def test_admm4():
     n = 10
     random = np.random#.RandomState(0)
     A = scipy.stats.wishart(scale=np.eye(n), seed=random).rvs()
-    x0 = 10*random.randn(n)
-    A += np.outer(x0, x0)
-    B = scipy.stats.wishart(scale=np.eye(n), seed=random).rvs() + np.eye(n)
-    B = np.eye(n)
-
-    print(scipy.linalg.eigvalsh(A,B))
-    print(np.linalg.eigvalsh(B))
+    B = scipy.stats.wishart(scale=np.eye(n), seed=random).rvs()
 
     from msmbuilder.decomposition._speigh import speigh
-
     from mdtraj.utils import timing
 
     with timing('1'):
-        print(speigh(A, B, rho=1e-1, verbose=1, method=1)[0])
+        print(speigh(A, B, verbose=1, rho=1, method=1))
     with timing('2'):
-        print(speigh(A, B, rho=1e-1, method=2)[0])
-    with timing('3'):
-        print(speigh(A, B, rho=1e-1, verbose=1,  tol=1e-6, method=3)[0])
-    with timing('4'):
-        print(speigh(A, B, rho=1e-1, verbose=1, tol=1e-4, method=4)[0])
+        print(speigh(A, B, verbose=1, rho=1, method=2))
 
 
 def build_dataset():
