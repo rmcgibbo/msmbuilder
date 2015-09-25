@@ -206,3 +206,55 @@ class TestSolvers(object):
         np.testing.assert_almost_equal(f1, f2, decimal=2)
         np.testing.assert_array_almost_equal(x1, x2, decimal=4)
 
+        x = np.zeros(len(b))
+        from msmbuilder.decomposition._speigh import solve_admm
+        solve_admm(b, w, B, x)
+
+        print('x', x)
+
+        print('x2', x2)
+        print('x1', x1)
+
+
+def test_project():
+    import cvxpy as cp
+    B = np.array([[ 4.805,  0.651,  0.611, -4.98 , -1.448],
+           [ 0.651,  6.132, -1.809,  0.613,  4.838],
+           [ 0.611, -1.809,  4.498,  0.055, -4.548],
+           [-4.98 ,  0.613,  0.055,  9.841,  2.17 ],
+           [-1.448,  4.838, -4.548,  2.17 ,  9.949]])
+    v  = np.array([-2.95538824, -3.26629412,  0.        , -5.04124118,  0.        ])
+
+    n = 5
+    #B = np.array([[2,1], [1,2]])
+    #n
+    B = rand_pos_semidef(n=n, seed=np.random.randint(100000))
+
+    x = cp.Variable(n)
+    v = 10*np.random.randn(n)
+
+    cp.Problem(cp.Minimize(
+        cp.norm2(x - v)**2
+    ), [cp.quad_form(x, B) <= 1]).solve()
+
+    sol1 = np.asarray(x.value)[:,0]
+    # sol2 = v / np.sqrt(v.dot(B).dot(v))
+
+    print('solution', sol1)
+    print('project ', project(v,B))
+
+
+def project(a, B):
+    w, V = scipy.linalg.eigh(B)
+    c = np.dot(V.T, a)
+
+    mu = 0
+    while True:
+        G = -1 +  np.sum(c**2 * w / (mu*w + 1)**2)
+        Gp = -2 * np.sum(c**2 * w**2 / (mu*w + 1)**3)
+        delta = -G/Gp
+        mu = mu + delta
+        if delta < 1e-16:
+            break
+
+    return V.dot(c/(mu*w + 1))

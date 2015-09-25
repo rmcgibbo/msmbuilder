@@ -288,7 +288,6 @@ cpdef double solve_admm2(const double[::1] b, const double[::1] w,
         if r < np.sqrt(N)*tol and s < np.sqrt(N)*tol:
             break
 
-    project(x, B, x)
     return 0.5*np.dot(x,x) - np.dot(x,b) + 0.5*np.dot(b,b) + np.sum(np.abs(np.multiply(w, x)))
 
 
@@ -491,6 +490,10 @@ cpdef double solve_admm(const double[::1] b, const double[::1] w,
     cdef double[::1] r = np.empty(N)
     cdef double[::1] s = np.empty(N)
 
+    cdef double[::1] eigvals_B
+    cdef double[:, ::1] eigvecs_B
+    eigvals_B, eigvecs_B = map(np.ascontiguousarray, scipy.linalg.eigh(B))
+
     for i in range(maxiter):
         z_old[:] = z[:]
 
@@ -504,7 +507,7 @@ cpdef double solve_admm(const double[::1] b, const double[::1] w,
         for j in range(N):
             v[j] = x[j] + u[j]
 
-        project(v, B, z)
+        project(v, eigvals_B, eigvecs_B, z)
 
         for j in range(N):
             r[j] = x[j] - z[j]               # primal residual
@@ -557,22 +560,64 @@ cdef soft_thresh(const double[::1] k, const double[::1] a, double[::1] out):
             out[i] = 0
 
 
-cdef project(const double[::1] v, const double[:, ::1] B, double[::1] out):
-    cdef int j
-    cdef int N = len(v)
-    cdef double norm
-    cdef double norm2
-    cdef double[::1] temp = np.empty(N)
 
-    cdgemv_N(B, v, temp)
-    cddot(temp, v, &norm2)
+cpdef project(const double[::1] a, const double[::1] w, const double[:, ::1] V,
+              double[::1] out):
+    """ Compute the projection of a vector a onto an ellipsoid
 
-    if norm2 <= 1:
-        out[:] = v[:]
-    else:
-        norm = sqrt(norm2)
+        Minimize_x ||x-a||^2
+        subject to x^TBx <= 1
+
+    where (w, V) are the eigenvalues and eigenvectors of the positive definite
+    matrix B.
+
+    Parameters
+    ----------
+    a : array, shape=(n,)
+        The vector to project
+    w : array, shape=(n,)
+        eigenvalues of B
+    V : array, shape=(n,n)
+        eigenvectors of B
+    out : array, shape=(n,)
+        On exit, the results will be written here
+    """
+    cdef int i, j
+    cdef int N = len(a)
+    cdef double mu, c2w_sum, G, Gp, muw1, delta
+    cdef double[::1] c = np.empty(N)
+    cdef double[::1] c2w = np.empty(N)
+    if not (len(a) == len(w) == V.shape[0] == V.shape[1]):
+        raise ValueError('Incompatible matrix dimensions')
+
+    cdgemv_T(V, a, c)   # c = V.T.dot(a)
+
+    c2w_sum = 0
+    for j in range(N):
+        c2w[j] = c[j]*c[j] * w[j]
+        c2w_sum += c2w[j]
+
+    if c2w_sum < 1:
+        out[:] = a[:]
+        return
+
+    mu = 0
+    for i in range(100):
+        G = -1
+        Gp = 0
         for j in range(N):
-            out[j] = v[j] / norm
+            muw1 = (mu*w[j]+1)
+            G += c2w[j] / (muw1*muw1)
+            Gp -= 2*c2w[j]*w[j] / (muw1*muw1*muw1)
+        delta = -G/Gp
+        mu = mu + delta
+        if fabs(delta) < 1e-12:
+            break
+
+    for j in range(N):
+        c2w[j] = c[j] / (mu*w[j] + 1)
+    cdgemv_N(V, c2w, out)
+    # return out
 
 
 cdef projectI(const double[::1] v, double[::1] out):
