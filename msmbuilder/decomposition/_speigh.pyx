@@ -86,14 +86,7 @@ def speigh(double[:, ::1] A, double[:, ::1] B, double rho, double eps=1e-6,
         Maximum number of iterations.
     method : int
         1: Default ADMM solver.
-        2. Alternate ADMM solver. This solver formulates the constraints in a
-           scaled form, and solves the inner problem with ISTA. Can be
-           significantly slower than the default solver, but can be more
-           accurate in some cases.
-        3. CVXOPT interior point solver for the QCQP.
-        4. Another alternate ADMM solver. Like (2), but instead of solving the
-           L1-regularized QP with ISTA, it solves it with a direct QP solver
-           (Goldfarb and Idnani). This is also relatively slow.
+        2. CVXOPT interior point solver for the QCQP.
 
     Returns
     -------
@@ -137,7 +130,6 @@ def speigh(double[:, ::1] A, double[:, ::1] B, double rho, double eps=1e-6,
     cdef double[:, ::1] B_eigvecs
     if method == 1:
         B_eigvals, B_eigvecs = map(np.ascontiguousarray, scipy.linalg.eigh(B))
-
 
     for i in range(maxiter):
         old_f = f
@@ -407,15 +399,3 @@ cpdef project(const double[::1] a, const double[::1] w, const double[:, ::1] V,
         c2w[j] = c[j] / (mu*w[j] + 1)
     cdgemv_N(V, c2w, out)
     # return out
-
-
-cdef projectI(const double[::1] v, double[::1] out):
-    cdef int N = len(v)
-    cdef double norm2
-    cddot(v, v, &norm2)
-    if norm2 <= 1:
-        out[:] = v[:]
-    else:
-        norm = sqrt(norm2)
-        for j in range(N):
-            out[j] = v[j] / norm
