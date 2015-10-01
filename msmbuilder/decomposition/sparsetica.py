@@ -12,8 +12,9 @@ from six import PY2
 import numpy as np
 import scipy.linalg
 from .tica import tICA
-from ..utils import experimental
+from ..utils import experimental, array2d
 from ._speigh import speigh, scdeflate
+from covar import cov_shrink
 
 __all__ = ['SparseTICA']
 
@@ -44,15 +45,6 @@ class SparseTICA(tICA):
     lag_time : int
         Delay time forward or backward in the input data. The time-lagged
         correlations is computed between datas X[t] and X[t+lag_time].
-    gamma : nonnegative float, default=0.05
-        L2 regularization strength. Positive `gamma` entails incrementing
-        the sample covariance matrix by a constant times the identity,
-        to ensure that it is positive definite. The exact form of the
-        regularized sample covariance matrix is ::
-
-            covariance + (gamma / n_features) * Tr(covariance) * Identity
-
-        where :math:`Tr` is the trace operator.
     rho : positive float
         Regularization strength with controls the sparsity of the solutions.
         Higher values of rho gives more sparse tICS with nonozero loadings on
@@ -116,35 +108,40 @@ class SparseTICA(tICA):
     .. [3] Mackey, L. "Deflation Methods for Sparse PCA." NIPS. Vol. 21. 2008.
     """
 
-    def __init__(self, n_components, lag_time=1, gamma=0.05,
-                 rho=0.01, weighted_transform=True, epsilon=1e-6, tolerance=1e-8,
-                 maxiter=10000, verbose=False):
-        super(SparseTICA, self).__init__(
-            n_components, lag_time=lag_time, gamma=gamma,
+    def __init__(self, n_components, lag_time=1, rho=0.01,
+                 weighted_transform=True, epsilon=1e-6, shrinkage=None,
+                 tolerance=1e-6, maxiter=10000, verbose=False):
+        super(SparseTICA, self).__init__(n_components, lag_time=lag_time,
             weighted_transform=weighted_transform)
         self.rho = rho
         self.epsilon = epsilon
+        self.shrinkage = shrinkage
         self.tolerance = tolerance
         self.maxiter = maxiter
         self.verbose = verbose
 
+        self._sequences = []
+        self._covariance_ = None
+
+    def _fit(self, X):
+        if self._initialized is False:
+            self._sequences = []
+        X = np.asarray(array2d(X), dtype=np.float64)
+        self._sequences.append(X)
+        super(SparseTICA, self)._fit(X)
+
+    @property
+    def covariance_(self):
+        if self._covariance_ is None or self._is_dirty:
+            self._covariance_, self.shrinkage_ = cov_shrink(np.concatenate(self._sequences), self.shrinkage)
+        return self._covariance_
+
     def _solve(self):
         if not self._is_dirty:
             return
-        if not np.allclose(self.offset_correlation_, self.offset_correlation_.T):
-            raise RuntimeError('offset correlation matrix is not symmetric')
-        if not np.allclose(self.covariance_, self.covariance_.T):
-            raise RuntimeError('correlation matrix is not symmetric')
-        if self.rho <= 0:
-            return super(SparseTICA, self)._solve()
-        self._do_solve()
 
-    @experimental('SparseTICA')
-    def _do_solve(self):
         A = self.offset_correlation_
-        B = self.covariance_ + (self.gamma / self.n_features) * \
-            np.trace(self.covariance_) * np.eye(self.n_features)
-
+        B = self.covariance_
 
         self._eigenvalues_ = np.zeros((self.n_components))
         self._eigenvectors_ = np.zeros((self.n_features, self.n_components))
