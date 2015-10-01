@@ -70,13 +70,6 @@ class SparseTICA(tICA):
         Convergence criteria for the sparse generalized eigensolver.
     maxiter : int
         Maximum number of iterations for the sparse generalized eigensolver.
-    max_nc : int
-        Maximum number of iterations without any change in the sparsity
-        pattern.
-    greedy : bool, default=True
-        Use a greedy heuristic in the sparse generalized eigensolver. This
-        *significantly* accelerates the solution for high-dimensional problems
-        under moderate to strong regularization.
     verbose : bool, default=False
         Print verbose information from the sparse generalized eigensolver.
 
@@ -125,16 +118,14 @@ class SparseTICA(tICA):
 
     def __init__(self, n_components, lag_time=1, gamma=0.05,
                  rho=0.01, weighted_transform=True, epsilon=1e-6, tolerance=1e-8,
-                 maxiter=10000, max_nc=100, greedy=True, verbose=False):
+                 maxiter=10000, verbose=False):
         super(SparseTICA, self).__init__(
             n_components, lag_time=lag_time, gamma=gamma,
             weighted_transform=weighted_transform)
         self.rho = rho
         self.epsilon = epsilon
         self.tolerance = tolerance
-        self.greedy = greedy
         self.maxiter = maxiter
-        self.max_nc = max_nc
         self.verbose = verbose
 
     def _solve(self):
@@ -154,18 +145,13 @@ class SparseTICA(tICA):
         B = self.covariance_ + (self.gamma / self.n_features) * \
             np.trace(self.covariance_) * np.eye(self.n_features)
 
-        tau = max(0, -np.min(scipy.linalg.eigvalsh(A)))
-        gevals, gevecs = scipy.linalg.eigh(A, B)
-        ind = np.argsort(gevals)[::-1]
-        gevecs, gevals = gevecs[:, ind], gevals[ind]
 
         self._eigenvalues_ = np.zeros((self.n_components))
         self._eigenvectors_ = np.zeros((self.n_features, self.n_components))
 
         for i in range(self.n_components):
-            u, v = speigh(A, B, rho=self.rho, v_init=gevecs[:, i], eps=self.epsilon,
-                          tol=self.tolerance, tau=tau, maxiter=self.maxiter,
-                          max_nc=self.max_nc, greedy=self.greedy,
+            u, v = speigh(A, B, rho=self.rho, eps=self.epsilon,
+                          tol=self.tolerance, maxiter=self.maxiter,
                           verbose=self.verbose)
 
             self._eigenvalues_[i] = u

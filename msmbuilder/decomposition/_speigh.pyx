@@ -190,6 +190,7 @@ def speigh(double[:, ::1] A, double[:, ::1] B, double rho, double eps=1e-6,
         v = np.zeros(N)
         v[mask] = gevecs[:, 0]
         v *= np.sign(np.sum(v))
+        v[v==-0] = 0
 
     return u, v
 

@@ -414,7 +414,7 @@ class tICA(BaseEstimator, TransformerMixin):
         # Note: How do we deal with regularization parameters like gamma
         # here? I'm not sure. Should C and S be estimated using self's
         # regularization parameters?
-        m2 = self.__class__(lag_time=self.lag_time)
+        m2 = self.__class__(n_components=self.n_components, lag_time=self.lag_time)
         for X in sequences:
             m2.partial_fit(X)
 
