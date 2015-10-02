@@ -49,6 +49,10 @@ class SparseTICA(tICA):
         Regularization strength with controls the sparsity of the solutions.
         Higher values of rho gives more sparse tICS with nonozero loadings on
         fewer degrees of freedom. rho=0 corresponds to standard tICA.
+    shrinkage : float, default=None
+        The covariance shrinkage intensity (range 0-1). If shrinkage is not
+        specified (the default) it is estimated using an analytic formula
+        (the Rao-Blackwellized Ledoit-Wolf estimator) introduced in [5].
     weighted_transform : bool, default=False
         If True, weight the projections by the implied timescales, giving
         a quantity that has units [Time].
@@ -130,15 +134,13 @@ class SparseTICA(tICA):
         self._sequences.append(X)
         super(SparseTICA, self)._fit(X)
 
-    @property
-    def covariance_(self):
-        if self._covariance_ is None or self._is_dirty:
-            self._covariance_, self.shrinkage_ = cov_shrink(np.concatenate(self._sequences), self.shrinkage)
-        return self._covariance_
-
     def _solve(self):
         if not self._is_dirty:
             return
+
+        if self.rho <= 0:
+            # if no sparse regularization, it's just regular tICA
+            return super(SparseTICA, self)._solve()
 
         A = self.offset_correlation_
         B = self.covariance_

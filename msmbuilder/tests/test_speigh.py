@@ -1,7 +1,7 @@
 import numpy as np
 import scipy.linalg
 from msmbuilder.decomposition._speigh import speigh, scdeflate
-from msmbuilder.decomposition._speigh import solve_cvxpy, solve_admm2
+from msmbuilder.decomposition._speigh import solve_cvxpy, solve_admm, project
 
 
 
@@ -161,15 +161,10 @@ class Test_speigh_2(object):
         A, B = build_lowrank(n, [1, 2, 0.001, 3], seed=0)
         w, V = eigh(A, B)
 
-        v1 = speigh(A, B, method=1, rho=1e-4)[1][2]
-        v2 = speigh(A, B, method=2, rho=1e-4)[1][2]
-        v3 = speigh(A, B, method=3, rho=1e-4)[1][2]
-        v4 = speigh(A, B, method=4, rho=1e-4)[1][2]
-
-        np.testing.assert_almost_equal(v1, 0.001)
-        np.testing.assert_almost_equal(v2, 0)
-        np.testing.assert_almost_equal(v3, 0)
-        np.testing.assert_almost_equal(v4, 0)
+        for rho in [1e-5, 1e-4, 1e-3]:
+            v1 = speigh(A, B, method=1, rho=rho)[1]
+            v2 = speigh(A, B, method=2, rho=rho)[1]
+            np.testing.assert_array_almost_equal(v1, v1)
 
     def test_3(self):
         n = 10
@@ -177,47 +172,12 @@ class Test_speigh_2(object):
         B = rand_pos_semidef(n, seed=1)
         w1, V1 = speigh(A, B, method=1, rho=10)
         w2, V2 = speigh(A, B, method=2, rho=10)
-        w3, V3 = speigh(A, B, method=3, rho=10)
 
-        np.testing.assert_almost_equal(w2, w3)
-        np.testing.assert_almost_equal(V2, V3)
-
-# cpdef double solve_admm2(const double[::1] b, const double[::1] w,
-#                         const double[:, ::1] B, double[::1] x,
-#                         double B_maxeig, double[:, ::1] A,
-#                         double tol=1e-4, int maxiter=100, int verbose=0,
-#                         method="ista"):
-
-class TestSolvers(object):
-    def test_admm2_vs_cvxpy(self):
-        b = np.array([-50.852, -66.227,  -8.96 , -86.548, -24.175])
-        w = np.array([  6.104e-01,   1.070e+01,   1.250e+01,   8.469e-01,   1.251e+02])
-        B = np.array([[ 4.805,  0.651,  0.611, -4.98 , -1.448],
-                      [ 0.651,  6.132, -1.809,  0.613,  4.838],
-                      [ 0.611, -1.809,  4.498,  0.055, -4.548],
-                      [-4.98 ,  0.613,  0.055,  9.841,  2.17 ],
-                      [-1.448,  4.838, -4.548,  2.17 ,  9.949]])
-
-        x1, f1 = solve_cvxpy(b, w, B)
-
-        x2 = np.zeros(len(b))
-        f2 = solve_admm2(b, w, B, x2, np.max(scipy.linalg.eigvals(B)), np.ascontiguousarray(scipy.linalg.cholesky(B)))
-
-        np.testing.assert_almost_equal(f1, f2, decimal=2)
-        np.testing.assert_array_almost_equal(x1, x2, decimal=4)
-
-        x = np.zeros(len(b))
-        from msmbuilder.decomposition._speigh import solve_admm
-        solve_admm(b, w, B, x)
-
-        print('x', x)
-
-        print('x2', x2)
-        print('x1', x1)
+        np.testing.assert_almost_equal(w1, w2)
+        np.testing.assert_almost_equal(V1, V2)
 
 
 def test_project():
-    import cvxpy as cp
     B = np.array([[ 4.805,  0.651,  0.611, -4.98 , -1.448],
            [ 0.651,  6.132, -1.809,  0.613,  4.838],
            [ 0.611, -1.809,  4.498,  0.055, -4.548],
@@ -225,36 +185,18 @@ def test_project():
            [-1.448,  4.838, -4.548,  2.17 ,  9.949]])
     v  = np.array([-2.95538824, -3.26629412,  0.        , -5.04124118,  0.        ])
 
-    n = 5
-    #B = np.array([[2,1], [1,2]])
-    #n
-    B = rand_pos_semidef(n=n, seed=np.random.randint(100000))
+    sol1 = project_cvxpy(v, B)
+    sol2 = np.empty_like(v)
+    eigvals, eigvecs = map(np.ascontiguousarray, scipy.linalg.eigh(B))
+    project(v, eigvals, eigvecs, sol2)
+    np.testing.assert_array_almost_equal(sol1, sol2, decimal=4)
 
-    x = cp.Variable(n)
-    v = 10*np.random.randn(n)
-
+def project_cvxpy(v, B):
+    import cvxpy as cp
+    x = cp.Variable(len(v))
     cp.Problem(cp.Minimize(
         cp.norm2(x - v)**2
     ), [cp.quad_form(x, B) <= 1]).solve()
 
-    sol1 = np.asarray(x.value)[:,0]
-    # sol2 = v / np.sqrt(v.dot(B).dot(v))
-
-    print('solution', sol1)
-    print('project ', project(v,B))
-
-
-def project(a, B):
-    w, V = scipy.linalg.eigh(B)
-    c = np.dot(V.T, a)
-
-    mu = 0
-    while True:
-        G = -1 +  np.sum(c**2 * w / (mu*w + 1)**2)
-        Gp = -2 * np.sum(c**2 * w**2 / (mu*w + 1)**3)
-        delta = -G/Gp
-        mu = mu + delta
-        if delta < 1e-16:
-            break
-
-    return V.dot(c/(mu*w + 1))
+    sol = np.asarray(x.value)[:,0]
+    return sol
