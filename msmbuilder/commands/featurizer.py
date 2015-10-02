@@ -44,10 +44,12 @@ class FeaturizerCommand(NumpydocClassCommand):
             self.error('File exists: %s' % self.out)
 
         print(self.instance)
-        if os.path.exists(os.path.expanduser(self.top)):
-            top = os.path.expanduser(self.top)
-        else:
+        if self.top.strip() == "":
             top = None
+        else:
+            top = os.path.expanduser(self.top)
+            err = "Couldn't find topology file '{}'".format(top)
+            assert os.path.exists(top), err
 
         input_dataset = MDTrajDataset(self.trjs, topology=top, stride=self.stride, verbose=False)
         out_dataset = input_dataset.create_derived(self.transformed, fmt='dir-npy')
@@ -101,7 +103,14 @@ class SuperposeFeaturizerCommand(FeaturizerCommand):
     _concrete = True
 
     def _reference_traj_type(self, fn):
-        return md.load(fn)
+        if self.top.strip() == "":
+            top = None
+        else:
+            top = os.path.expanduser(self.top)
+            err = ("Couldn't find topology file '{}' "
+                   "when loading reference trajectory".format(top))
+            assert os.path.exists(top), err
+        return md.load(fn, top=top)
 
     def _atom_indices_type(self, fn):
         if fn is None:

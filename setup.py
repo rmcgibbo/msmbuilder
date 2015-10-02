@@ -52,7 +52,7 @@ except ImportError:
     sys.exit(1)
 
 # #########################
-VERSION = '3.3.0.dev0'
+VERSION = '3.4.0.dev0'
 ISRELEASED = False
 __version__ = VERSION
 # #########################
@@ -63,14 +63,13 @@ Intended Audience :: Developers
 License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)
 Programming Language :: C++
 Programming Language :: Python
-Development Status :: 4 - Beta
+Development Status :: 5 - Production/Stable
 Topic :: Software Development
 Topic :: Scientific/Engineering
 Operating System :: POSIX
 Operating System :: Unix
 Operating System :: MacOS
 Programming Language :: Python :: 2
-Programming Language :: Python :: 2.6
 Programming Language :: Python :: 2.7
 Programming Language :: Python :: 3
 Programming Language :: Python :: 3.3

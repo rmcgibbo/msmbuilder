@@ -1,6 +1,4 @@
 from __future__ import print_function
-import time
-import sys
 import numpy as np
 import scipy.linalg
 from numpy.testing.decorators import skipif
@@ -8,8 +6,8 @@ from scipy.optimize import check_grad, approx_fprime
 try:
     import numdifftools as nd
 except ImportError:
-    print('Missig test dependency', file=sys.stderr)
-    print('  pip installl numdifftools', file=sys.stderr)
+    print('Missig test dependency')
+    print('  pip installl numdifftools')
     raise
 
 from msmbuilder.msm import _ratematrix
@@ -304,7 +302,7 @@ def test_hessian_3():
     seqs = [seqs[i] for i in range(10)]
 
     lag_time = 10
-    model = ContinuousTimeMSM(verbose=True, lag_time=lag_time)
+    model = ContinuousTimeMSM(verbose=False, lag_time=lag_time)
     model.fit(seqs)
     msm = MarkovStateModel(verbose=False, lag_time=lag_time)
     print(model.summarize())
@@ -331,7 +329,7 @@ def test_fit_2():
     grid = NDGrid(n_bins_per_feature=5, min=-np.pi, max=np.pi)
     seqs = grid.fit_transform(load_doublewell(random_state=0)['trajectories'])
 
-    model = ContinuousTimeMSM(verbose=True, lag_time=10)
+    model = ContinuousTimeMSM(verbose=False, lag_time=10)
     model.fit(seqs)
     t1 = np.sort(model.timescales_)
     t2 = -1/np.sort(np.log(np.linalg.eigvals(model.transmat_))[1:])
@@ -414,8 +412,6 @@ def test_score_2():
 
 
 def test_score_3():
-    import warnings
-    warnings.simplefilter('ignore')
     from msmbuilder.example_datasets.muller import MULLER_PARAMETERS as PARAMS
 
     cluster = NDGrid(n_bins_per_feature=6,
@@ -436,3 +432,35 @@ def test_score_3():
     train = model.score_
     test = model.score(test_data)
     print(train, test)
+
+
+def test_guess():
+    from msmbuilder.example_datasets.muller import MULLER_PARAMETERS as PARAMS
+
+    cluster = NDGrid(n_bins_per_feature=5,
+          min=[PARAMS['MIN_X'], PARAMS['MIN_Y']],
+          max=[PARAMS['MAX_X'], PARAMS['MAX_Y']])
+
+    ds = MullerPotential(random_state=0).get()['trajectories']
+    assignments = cluster.fit_transform(ds)
+
+    model1 = ContinuousTimeMSM(guess='log')
+    model1.fit(assignments)
+
+    model2 = ContinuousTimeMSM(guess='pseudo')
+    model2.fit(assignments)
+
+    assert np.abs(model1.loglikelihoods_[-1] - model2.loglikelihoods_[-1]) < 1e-3
+    assert np.max(np.abs(model1.ratemat_ - model2.ratemat_)) < 1e-1
+
+
+def test_doublewell():
+    trjs = load_doublewell(random_state=0)['trajectories']
+    for n_states in [10, 50]:
+        clusterer = NDGrid(n_bins_per_feature=n_states)
+        assignments = clusterer.fit_transform(trjs)
+
+        for sliding_window in [True, False]:
+            model = ContinuousTimeMSM(lag_time=100, sliding_window=sliding_window)
+            model.fit(assignments)
+            assert model.optimizer_state_.success

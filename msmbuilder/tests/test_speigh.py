@@ -191,6 +191,7 @@ def test_project():
     project(v, eigvals, eigvecs, sol2)
     np.testing.assert_array_almost_equal(sol1, sol2, decimal=4)
 
+
 def project_cvxpy(v, B):
     import cvxpy as cp
     x = cp.Variable(len(v))

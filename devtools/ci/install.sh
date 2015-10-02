@@ -8,10 +8,9 @@ fi
 bash $MINICONDA -b
 rm -f $MINICONDA
 
-sudo ln -s /usr/bin/g++ /usr/bin/g++44
 export PATH=$HOME/miniconda/bin:$PATH
 
 conda update --yes conda
-conda config --add channels http://conda.binstar.org/omnia
+conda config --add channels omnia
 conda install --yes conda-build pip
 

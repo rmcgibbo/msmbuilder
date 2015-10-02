@@ -86,8 +86,6 @@ def test_3():
          np.testing.assert_array_equal(ds[:][1], ds[1])
          np.testing.assert_array_equal(ds[:][2], ds[2])
 
-         np.testing.assert_array_equal(ds[1:][0], ds[1])
-         np.testing.assert_array_equal(ds[1:][1], ds[2])
 
     finally:
         shutil.rmtree(path)
@@ -137,8 +135,6 @@ def test_hdf5_1():
         np.testing.assert_array_equal(ds[:][1], ds[1])
         np.testing.assert_array_equal(ds[:][2], ds[2])
 
-        np.testing.assert_array_equal(ds[1:][0], ds[1])
-        np.testing.assert_array_equal(ds[1:][1], ds[2])
 
         ds.close()
         with dataset('ds.h5') as ds:
@@ -188,7 +184,7 @@ def test_union():
             rs1 = np.sum(ds1[0], axis=1) + np.sum(ds2[0], axis=1)
             rs2 = ds1[1] + np.sum(ds2[1], axis=1)
 
-        mds = dataset(['ds1.h5', 'ds2.h5'])
+        mds = dataset(['ds1.h5', 'ds2.h5'], fmt='hdf5-union')
 
         assert len(mds) == 2
         assert mds[0].shape == (10, 6)
@@ -210,7 +206,7 @@ def test_union_2():
             ds2[1] = np.random.randn(10,4)
 
 
-        mds = dataset(['ds1', 'ds2'])
+        mds = dataset(['ds1', 'ds2'], fmt='dir-npy-union')
         mds_out = mds.create_derived('derived', fmt='dir-npy')
         assert len(mds_out.provenance.split('\n')) > 0
 
@@ -226,7 +222,7 @@ def test_union_3():
             # Uneven length!
 
         with assert_raises(ValueError):
-            mds = dataset(['ds1', 'ds2'])
+            mds = dataset(['ds1', 'ds2'], fmt='dir-npy-union')
 
 
 def test_order_1():
@@ -260,8 +256,6 @@ def test_append_dirnpy():
         np.testing.assert_array_equal(ds[:][1], ds[1])
         np.testing.assert_array_equal(ds[:][2], ds[2])
 
-        np.testing.assert_array_equal(ds[1:][0], ds[1])
-        np.testing.assert_array_equal(ds[1:][1], ds[2])
 
     finally:
         shutil.rmtree(path)
@@ -275,14 +269,16 @@ def test_items():
         ds[1] = np.random.randn(10, 2)
         ds[5] = np.random.randn(10, 3)
 
-        # NOTE!
-        # ds[:] does not work for non-contiguous keys.
 
         keys = [0, 1, 5]
 
         for i, (k, v) in enumerate(ds.items()):
             assert k == keys[i]
             np.testing.assert_array_equal(ds[k], v)
+
+        np.testing.assert_array_equal(ds[:][0], ds[0])
+        np.testing.assert_array_equal(ds[:][1], ds[1])
+        np.testing.assert_array_equal(ds[:][2], ds[5])
 
         ds.close()
 

@@ -47,7 +47,7 @@ class MarkovStateModel(BaseEstimator, _MappingTransformMixin, _SampleMSMMixin):
         The lag time of the model
     n_timescales : int, optional
         The number of dynamical timescales to calculate when diagonalizing
-        the transition matrix.
+        the transition matrix. If not specified, it will compute n_states - 1
     reversible_type : {'mle', 'transpose', None}
         Method by which the reversibility of the transition matrix
         is enforced. 'mle' uses a maximum likelihood method that is
@@ -107,7 +107,7 @@ class MarkovStateModel(BaseEstimator, _MappingTransformMixin, _SampleMSMMixin):
         The equilibrium population (stationary eigenvector) of transmat_
     """
 
-    def __init__(self, lag_time=1, n_timescales=10, reversible_type='mle',
+    def __init__(self, lag_time=1, n_timescales=None, reversible_type='mle',
                  ergodic_cutoff='on', prior_counts=0, sliding_window=True,
                  verbose=True):
         self.reversible_type = reversible_type
@@ -116,13 +116,6 @@ class MarkovStateModel(BaseEstimator, _MappingTransformMixin, _SampleMSMMixin):
         self.prior_counts = prior_counts
         self.sliding_window = sliding_window
         self.verbose = verbose
-        if isinstance(ergodic_cutoff, str) and ergodic_cutoff.lower() == 'on':
-            if sliding_window:
-                ergodic_cutoff = 1.0/lag_time
-            else:
-                ergodic_cutoff = 1.0
-        elif isinstance(ergodic_cutoff, str) and ergodic_cutoff.lower() == 'off':
-            ergodic_cutoff = 0.0
         self.ergodic_cutoff = ergodic_cutoff
 
         # Keep track of whether to recalculate eigensystem
@@ -137,6 +130,21 @@ class MarkovStateModel(BaseEstimator, _MappingTransformMixin, _SampleMSMMixin):
         self.transmat_ = None
         self.n_states_ = None
         self.populations_ = None
+
+    def _parse_ergodic_cutoff(self):
+        """Get a numeric value from the ergodic_cutoff input,
+        which can be 'on' or 'off'.
+        """
+        ec_is_str = isinstance(self.ergodic_cutoff, str)
+        if ec_is_str and self.ergodic_cutoff.lower() == 'on':
+            if self.sliding_window:
+                return 1.0 / self.lag_time
+            else:
+                return 1.0
+        elif ec_is_str and self.ergodic_cutoff.lower() == 'off':
+            return 0.0
+        else:
+            return self.ergodic_cutoff
 
     def fit(self, sequences, y=None):
         """Estimate model parameters.
@@ -166,11 +174,12 @@ class MarkovStateModel(BaseEstimator, _MappingTransformMixin, _SampleMSMMixin):
         raw_counts, mapping = _transition_counts(
             sequences, int(self.lag_time), sliding_window=self.sliding_window)
 
-        if self.ergodic_cutoff > 0:
+        ergodic_cutoff = self._parse_ergodic_cutoff()
+        if ergodic_cutoff > 0:
             # step 2. restrict the counts to the maximal strongly ergodic
             # subgraph
             self.countsmat_, mapping2 = _strongly_connected_subgraph(
-                raw_counts, self.ergodic_cutoff, self.verbose)
+                raw_counts, ergodic_cutoff, self.verbose)
             self.mapping_ = _dict_compose(mapping, mapping2)
         else:
             # no ergodic trimming.
@@ -200,7 +209,7 @@ class MarkovStateModel(BaseEstimator, _MappingTransformMixin, _SampleMSMMixin):
         return self
 
     def _fit_mle(self, counts):
-        if self.ergodic_cutoff <= 0 and self.prior_counts == 0:
+        if self._parse_ergodic_cutoff() <= 0 and self.prior_counts == 0:
             warnings.warn("reversible_type='mle' and ergodic_cutoff <= 0 "
                           "are not generally compatible")
 
@@ -341,9 +350,8 @@ class MarkovStateModel(BaseEstimator, _MappingTransformMixin, _SampleMSMMixin):
                     self._left_eigenvectors,
                     self._right_eigenvectors)
 
-        n_timescales = self.n_timescales
-        if n_timescales is None:
-            n_timescales = self.n_states_ - 1
+        n_timescales = min(self.n_timescales if self.n_timescales is not None
+                           else self.n_states_ - 1, self.n_states_ - 1)
 
         k = n_timescales + 1
         u, lv, rv = _solve_msm_eigensystem(self.transmat_, k)
@@ -572,9 +580,9 @@ Timescales:
         if self.reversible_type is None:
             raise NotImplementedError('reversible_type must be "mle" or "transpose"')
 
-        n_timescales = min(self.n_timescales, self.n_states_ - 1)
-        if n_timescales is None:
-            n_timescales = self.n_states_ - 1
+        n_timescales = min(self.n_timescales if self.n_timescales is not None
+                           else self.n_states_ - 1, self.n_states_ - 1)
+
         u, lv, rv = self._get_eigensystem()
 
         sigma2 = np.zeros(n_timescales + 1)
