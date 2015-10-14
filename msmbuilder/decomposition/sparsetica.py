@@ -124,16 +124,6 @@ class SparseTICA(tICA):
         self.maxiter = maxiter
         self.verbose = verbose
 
-        self._sequences = []
-        self._covariance_ = None
-
-    def _fit(self, X):
-        if self._initialized is False:
-            self._sequences = []
-        X = np.asarray(array2d(X), dtype=np.float64)
-        self._sequences.append(X)
-        super(SparseTICA, self)._fit(X)
-
     def _solve(self):
         if not self._is_dirty:
             return
