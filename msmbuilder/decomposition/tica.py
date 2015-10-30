@@ -101,6 +101,7 @@ class tICA(BaseEstimator, TransformerMixin):
         self.n_components = n_components
         self.lag_time = lag_time
         self.shrinkage = shrinkage
+        self.shrinkage_ = None
         self.weighted_transform = weighted_transform
 
         self.n_features = None
@@ -238,6 +239,7 @@ class tICA(BaseEstimator, TransformerMixin):
         if self.shrinkage is None:
             sigma, self.shrinkage_ = rao_blackwell_ledoit_wolf(S, n=self.n_observations_)
         else:
+            self.shrinkage_ = self.shrinkage
             p = self.n_features
             F = (np.trace(S) / p) * np.eye(p)  # shrinkage target
             sigma = (1-self.shrinkage)*S + self.shrinkage*F
@@ -437,10 +439,13 @@ class tICA(BaseEstimator, TransformerMixin):
 
     def summarize(self):
         """Some summary information."""
+        # force shrinkage to be calculated
+        self.covariance_
+
         return """time-structure based Independent Components Analysis (tICA)
 -----------------------------------------------------------
 n_components        : {n_components}
-gamma               : {gamma}
+shrinkage           : {shrinkage}
 lag_time            : {lag_time}
 weighted_transform  : {weighted_transform}
 
@@ -450,7 +455,7 @@ Top 5 timescales :
 Top 5 eigenvalues :
 {eigenvalues}
 """.format(n_components=self.n_components, lag_time=self.lag_time,
-           gamma=self.gamma, weighted_transform=self.weighted_transform,
+           shrinkage=self.shrinkage_, weighted_transform=self.weighted_transform,
            timescales=self.timescales_[:5], eigenvalues=self.eigenvalues_[:5])
 
 
