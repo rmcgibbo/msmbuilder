@@ -14,7 +14,6 @@ import scipy.linalg
 from .tica import tICA
 from ..utils import experimental, array2d
 from ._speigh import speigh, scdeflate
-from covar import cov_shrink
 
 __all__ = ['SparseTICA']
 
