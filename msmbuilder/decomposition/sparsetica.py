@@ -156,7 +156,7 @@ class SparseTICA(tICA):
         return """Sparse time-structure based Independent Components Analysis (tICA)
 ------------------------------------------------------------------
 n_components        : {n_components}
-gamma               : {gamma}
+shrinkage           : {shrinkage}
 lag_time            : {lag_time}
 weighted_transform  : {weighted_transform}
 rho                 : {rho}
@@ -171,6 +171,6 @@ Top 5 eigenvalues :
 Number of active degrees of freedom:
 {active}
 """.format(n_components=self.n_components, lag_time=self.lag_time, rho=self.rho,
-           gamma=self.gamma, weighted_transform=self.weighted_transform,
+           shrinkage=self.shrinkage_, weighted_transform=self.weighted_transform,
            timescales=self.timescales_[:5], eigenvalues=self.eigenvalues_[:5],
            n_features=self.n_features, active=active)
